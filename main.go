@@ -14,24 +14,22 @@ func main() {
 		return
 	}
 
-
 	if len(os.Args) < 2 {
-		fmt.Println("Uso: anime <video> <qualità>")
+		fmt.Println("Uso: anime <video/url> <qualità>")
+		fmt.Println("Usa 'anime -player' per avviare la modalità player interattivo.")
 		fmt.Println("Usa 'anime help' per maggiori informazioni.")
 		return
 	}
 
-	first := os.Args[1]
+	first := strings.ToLower(strings.Trim(os.Args[1], " "))
+
+	if first == "-player" {
+		handlePlayer()
+		return
+	}
 
 	if strings.Contains(first, "help") {
-		fmt.Println("Uso:")
-		fmt.Println("  anime <percorso_video> <qualità>")
-		fmt.Println()
-		fmt.Println("Qualità:")
-		fmt.Println("  1 - LOW")
-		fmt.Println("  2 - MID")
-		fmt.Println("  3 - MID-HIGH")
-		fmt.Println("  4 - HIGH")
+		help()
 		return
 	}
 
@@ -46,72 +44,52 @@ func main() {
 		return
 	}
 
-	var shaders []string
-	var qualityName string
+	play(first, second)
+}
 
-	switch second {
+func help() {
+	fmt.Println("Uso:")
+	fmt.Println(WrapIn("--Puoi anche cercare e vedere direttamente da qui anime senza scaricarli, aggiungi il flag : '-player' --", Green))
+	fmt.Println("  anime <percorso_video / url con file diretto> <qualità>")
+	fmt.Println()
+	fmt.Println("Qualità disponibili:")
+	for _, p := range QualityPresets {
+		fmt.Printf("  %d - %-32s (%s)\n", p.ID, p.Name, p.Description)
+	}
+}
 
-	case 1:
-		qualityName = "LOW"
-
-		shaders = []string{
-			"~~/shaders/Anime4K_Clamp_Highlights.glsl",
-			"~~/shaders/Anime4K_Restore_CNN_Soft_M.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_S.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x2.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x4.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_S.glsl",
-		}
-
-	case 2:
-		qualityName = "MID"
-
-		shaders = []string{
-			"~~/shaders/Anime4K_Clamp_Highlights.glsl",
-			"~~/shaders/Anime4K_Restore_CNN_M.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_M.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x2.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x4.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_M.glsl",
-		}
-
-	case 3:
-		qualityName = "MID-HIGH"
-
-		shaders = []string{
-			"~~/shaders/Anime4K_Clamp_Highlights.glsl",
-			"~~/shaders/Anime4K_Restore_CNN_Soft_M.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_VL.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x2.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x4.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_M.glsl",
-		}
-
-	case 4:
-		qualityName = "HIGH"
-
-		shaders = []string{
-			"~~/shaders/Anime4K_Clamp_Highlights.glsl",
-			"~~/shaders/Anime4K_Restore_CNN_VL.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_VL.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x2.glsl",
-			"~~/shaders/Anime4K_AutoDownscalePre_x4.glsl",
-			"~~/shaders/Anime4K_Upscale_CNN_x2_M.glsl",
-		}
-
-	default:
-		fmt.Println("Qualità non valida. Usa un valore da 1 a 4.")
+func play(url string, qualityNum int) {
+	preset := GetPresetByID(qualityNum)
+	if preset == nil {
+		fmt.Printf("Qualità non valida. Seleziona un valore da 1 a %d.\n", len(QualityPresets))
 		return
 	}
 
-	fmt.Printf("Video: %s\n", first)
-	fmt.Printf("Qualità: %s\n", qualityName)
+	shaderDir, err := ensureShaders()
+	if err != nil {
+		fmt.Printf("Attenzione: impossibile caricare gli shader interni (%v). Verranno usati quelli di default di mpv se disponibili.\n", err)
+	}
 
-	quality := "--glsl-shaders=" + strings.Join(shaders, ":")
+	resolveShader := func(name string) string {
+		if shaderDir != "" {
+			return getShaderPath(shaderDir, name)
+		}
+		return "~~/shaders/" + name
+	}
+
+	shaders := make([]string, len(preset.ShaderFiles))
+	for i, file := range preset.ShaderFiles {
+		shaders[i] = resolveShader(file)
+	}
+
+	fmt.Printf("Video:   %s\n", url)
+	fmt.Printf("Qualità: [%d] %s (%s)\n", preset.ID, preset.Name, preset.Description)
+
+	quality := "--glsl-shaders=" + strings.Join(shaders, string(os.PathListSeparator))
 
 	cmd := exec.Command(
 		"mpv",
-		first,
+		url,
 		quality,
 	)
 
