@@ -83,22 +83,70 @@ func (c *Client) Search(ctx context.Context, query string) ([]SearchResult, erro
 
 	var results []SearchResult
 	seen := map[string]bool{}
+
+	// Se la struttura contiene .film-list .item, estraiamo direttamente da ciascun item
+	items := doc.Find(".film-list .item")
+	if items.Length() > 0 {
+		items.Each(func(_ int, item *goquery.Selection) {
+			nameLink := item.Find("a.name").First()
+			posterLink := item.Find("a.poster").First()
+
+			href, ok := nameLink.Attr("href")
+			if !ok || href == "" {
+				href, ok = posterLink.Attr("href")
+			}
+			if !ok || !strings.Contains(href, "/play/") {
+				return
+			}
+
+			u := c.abs(href)
+			if seen[u] {
+				return
+			}
+			seen[u] = true
+
+			name := strings.TrimSpace(nameLink.Text())
+			if name == "" {
+				name = strings.TrimSpace(posterLink.Find("img").AttrOr("alt", ""))
+			}
+			if name == "" {
+				name = strings.TrimSpace(nameLink.AttrOr("data-jtitle", ""))
+			}
+
+			cover := ""
+			if src, ok := posterLink.Find("img").First().Attr("src"); ok {
+				cover = c.abs(src)
+			}
+
+			if name != "" {
+				results = append(results, SearchResult{Name: name, URL: u, Cover: cover})
+			}
+		})
+		return results, nil
+	}
+
+	// Fallback generico per altre possibili pagine
 	doc.Find("a").Each(func(_ int, a *goquery.Selection) {
 		href, ok := a.Attr("href")
 		if !ok || !strings.Contains(href, "/play/") {
 			return
 		}
 		u := c.abs(href)
+		if seen[u] {
+			return
+		}
+
 		name := strings.TrimSpace(a.Find("h2, h3, .title, .name").First().Text())
+		if name == "" {
+			name = strings.TrimSpace(a.Find("img").AttrOr("alt", ""))
+		}
 		if name == "" {
 			name = strings.TrimSpace(a.AttrOr("title", ""))
 		}
-		if name == "" {
-			name = strings.TrimSpace(a.Text())
-		}
-		if name == "" || seen[u] {
+		if name == "" || strings.EqualFold(name, "dub") || strings.EqualFold(name, "sub") {
 			return
 		}
+
 		seen[u] = true
 		cover := ""
 		if src, ok := a.Find("img").First().Attr("src"); ok {
