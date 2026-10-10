@@ -44,8 +44,7 @@ func handlePlayer() {
 
 	printTitle()
 	for {
-		fmt.Println()
-		fmt.Print(WrapIn("Cerca un anime (o 'q' per uscire): ", Yellow))
+		fmt.Print("\n" + WrapIn("Cerca un anime (o 'q' per uscire): ", Yellow))
 		query := readTrimmed(scanner)
 		if strings.EqualFold(query, "q") || query == "" {
 			fmt.Println("Uscita dal player.")
@@ -66,14 +65,18 @@ func handlePlayer() {
 		}
 
 		for {
-			fmt.Println()
-			fmt.Println(WrapIn(fmt.Sprintf("--- Risultati trovati per '%s' ---", query), Green))
+			var sb strings.Builder
+			sb.WriteString("\n")
+			sb.WriteString(WrapIn(fmt.Sprintf("--- Risultati trovati per '%s' ---", query), Green))
+			sb.WriteString("\n")
 			for i, res := range results {
-				fmt.Printf("[%s%d%s] %s\n", Yellow, i+1, Reset, res.Name)
+				sb.WriteString(fmt.Sprintf("[%s%d%s] %s\n", Yellow, i+1, Reset, res.Name))
 			}
-			fmt.Println(WrapIn("[b] Torna alla ricerca | [q] Esci", Cyan))
+			sb.WriteString(WrapIn("[b] Torna alla ricerca | [q] Esci", Cyan))
+			sb.WriteString("\n")
+			sb.WriteString(WrapIn("Seleziona il numero dell'anime: ", Yellow))
 
-			fmt.Print(WrapIn("Seleziona il numero dell'anime: ", Yellow))
+			fmt.Print(sb.String())
 			input := readTrimmed(scanner)
 			if strings.EqualFold(input, "q") {
 				fmt.Println("Uscita dal player.")
@@ -110,14 +113,17 @@ func handleAnimeEpisodes(scanner *bufio.Scanner, client *streaming.Client, anime
 	ctx := context.Background()
 
 	for {
-		fmt.Println()
-		fmt.Println(WrapIn(fmt.Sprintf("=== %s ===", anime.Name), Green))
-		fmt.Println(WrapIn("Scelte disponibili per gli episodi:", Cyan))
-		fmt.Println("1. Inserisci numero episodio direttamente (veloce)")
-		fmt.Println("2. Visualizza tutti gli episodi disponibili e scegline uno")
-		fmt.Println(WrapIn("[b] Torna alla lista anime | [q] Esci", Cyan))
+		var menuSb strings.Builder
+		menuSb.WriteString("\n")
+		menuSb.WriteString(WrapIn(fmt.Sprintf("=== %s ===", anime.Name), Green))
+		menuSb.WriteString("\n")
+		menuSb.WriteString(WrapIn("Scelte disponibili per gli episodi:", Cyan))
+		menuSb.WriteString("\n1. Inserisci numero episodio direttamente (veloce)\n")
+		menuSb.WriteString("2. Visualizza tutti gli episodi disponibili e scegline uno\n")
+		menuSb.WriteString("[b] Torna alla lista anime | [q] Esci\n")
+		menuSb.WriteString(WrapIn("Scegli un'opzione o inserisci direttamente il numero dell'episodio (es. 1, 2, ...): \n", Yellow))
 
-		fmt.Print(WrapIn("Scegli un'opzione o inserisci direttamente il numero dell'episodio (es. 1, 2, ...): ", Yellow))
+		fmt.Print(menuSb.String())
 		choice := readTrimmed(scanner)
 		if strings.EqualFold(choice, "q") {
 			fmt.Println("Uscita dal player.")
@@ -189,18 +195,22 @@ func handleAnimeEpisodes(scanner *bufio.Scanner, client *streaming.Client, anime
 
 func selectAndPlayEpisodeList(scanner *bufio.Scanner, episodes []streaming.Episode) {
 	for {
-		fmt.Println()
-		fmt.Println(WrapIn("--- Episodi Disponibili ---", Green))
+		var sb strings.Builder
+		sb.WriteString("\n")
+		sb.WriteString(WrapIn("--- Episodi Disponibili ---", Green))
+		sb.WriteString("\n")
 		for i, ep := range episodes {
 			status := ""
 			if ep.StreamURL == "" {
 				status = " (Non disponibile)"
 			}
-			fmt.Printf("[%s%d%s] Episodio %s%s\n", Yellow, i+1, Reset, ep.Number, status)
+			sb.WriteString(fmt.Sprintf("[%s%d%s] Episodio %s%s\n", Yellow, i+1, Reset, ep.Number, status))
 		}
-		fmt.Println(WrapIn("[b] Torna indietro | [q] Esci", Cyan))
+		sb.WriteString(WrapIn("[b] Torna indietro | [q] Esci", Cyan))
+		sb.WriteString("\n")
+		sb.WriteString(WrapIn("Seleziona il numero della lista da riprodurre: ", Yellow))
 
-		fmt.Print(WrapIn("Seleziona il numero della lista da riprodurre: ", Yellow))
+		fmt.Print(sb.String())
 		input := readTrimmed(scanner)
 		if strings.EqualFold(input, "q") {
 			fmt.Println("Uscita dal player.")
@@ -232,14 +242,18 @@ func selectAndPlayEpisodeList(scanner *bufio.Scanner, episodes []streaming.Episo
 
 func askQualityAndPlay(scanner *bufio.Scanner, streamURL string, epNum string) {
 	for {
-		fmt.Println()
-		fmt.Println(WrapIn(fmt.Sprintf("Configura qualità per Episodio %s:", epNum), Yellow))
+		var sb strings.Builder
+		sb.WriteString("\n")
+		sb.WriteString(WrapIn(fmt.Sprintf("Configura qualità per Episodio %s:", epNum), Yellow))
+		sb.WriteString("\n")
 		for _, p := range QualityPresets {
-			fmt.Printf("[%s%d%s] %-28s - %s\n", Yellow, p.ID, Reset, p.Name, p.Description)
+			sb.WriteString(fmt.Sprintf("[%s%d%s] %-28s - %s\n", Yellow, p.ID, Reset, p.Name, p.Description))
 		}
-		fmt.Println(WrapIn("[b] Annulla | [q] Esci", Cyan))
+		sb.WriteString(WrapIn("[b] Annulla | [q] Esci", Cyan))
+		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("%sInserisci la qualità desiderata (1-%d): %s", Yellow, len(QualityPresets), Reset))
 
-		fmt.Printf("%sInserisci la qualità desiderata (1-%d): %s", Yellow, len(QualityPresets), Reset)
+		fmt.Print(sb.String())
 		input := readTrimmed(scanner)
 		if strings.EqualFold(input, "q") {
 			fmt.Println("Uscita dal player.")

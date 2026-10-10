@@ -48,14 +48,14 @@ func main() {
 }
 
 func help() {
-	fmt.Println("Uso:")
-	fmt.Println(WrapIn("--Puoi anche cercare e vedere direttamente da qui anime senza scaricarli, aggiungi il flag : '-player' --", Green))
-	fmt.Println("  anime <percorso_video / url con file diretto> <qualità>")
-	fmt.Println()
-	fmt.Println("Qualità disponibili:")
+	var sb strings.Builder
+	sb.WriteString("Uso:\n")
+	sb.WriteString(WrapIn("--Puoi anche cercare e vedere direttamente da qui anime senza scaricarli, aggiungi il flag : '-player' --", Green))
+	sb.WriteString("\n  anime <percorso_video / url con file diretto> <qualità>\n\nQualità disponibili:\n")
 	for _, p := range QualityPresets {
-		fmt.Printf("  %d - %-32s (%s)\n", p.ID, p.Name, p.Description)
+		sb.WriteString(fmt.Sprintf("  %d - %-32s (%s)\n", p.ID, p.Name, p.Description))
 	}
+	fmt.Print(sb.String())
 }
 
 func play(url string, qualityNum int) {
