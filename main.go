@@ -1,6 +1,7 @@
 package main
 
 import (
+	"UpscalerCLI/streaming"
 	"fmt"
 	"os"
 	"os/exec"
@@ -102,4 +103,11 @@ func play(url string, qualityNum int) {
 		fmt.Println("Errore durante l'esecuzione di mpv:", err)
 		return
 	}
+}
+
+func handlePlayer() {
+	ui := NewUI(os.Stdin, os.Stdout)
+	client := streaming.NewClient()
+	player := NewPlayerCLI(ui, client)
+	player.Run()
 }
