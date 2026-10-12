@@ -107,7 +107,48 @@ func play(url string, qualityNum int) {
 
 func handlePlayer() {
 	ui := NewUI(os.Stdin, os.Stdout)
-	client := streaming.NewClient()
-	player := NewPlayerCLI(ui, client)
+
+	configs, err := LoadConfig()
+	if err != nil {
+		fmt.Println("Attenzione: impossibile caricare la configurazione. Verrà usata quella predefinita.")
+		configs = DefaultConfig()
+	}
+
+	provider := getProviderByConfig(configs, ui)
+
+	player := NewPlayerCLI(ui, provider)
 	player.Run()
+}
+func getProviderByConfig(config *Config, ui *UI) streaming.Provider {
+	pref := config.Preference
+	if pref == "default" {
+		fmt.Println(WrapIn("Seleziona il provider di streaming:\n", Cyan),
+			fmt.Sprintf("[%s1%s] AnimeWorld (sicuro che funzioni ma qualità bassa)\n", Yellow, Reset),
+			fmt.Sprintf("[%s2%s] AnimeUnity (migliore qualità)\n", Yellow, Reset),
+		)
+		choice := ui.ReadInput(WrapIn("Scelta (1/2): ", Yellow))
+
+		if choice == "2" {
+			config.Preference = "animeunity"
+
+			err := SaveConfig(config)
+			if err != nil {
+				fmt.Print("Errore nel salvataggio delle impostazioni")
+			}
+
+			return streaming.NewAnimeUnityClient()
+		}
+		config.Preference = "animeworld"
+
+		err := SaveConfig(config)
+		if err != nil {
+			fmt.Print("Errore nel salvataggio delle impostazioni")
+		}
+
+		return streaming.NewAnimeWorldClient()
+	} else if pref == "animeunity" {
+		return streaming.NewAnimeUnityClient()
+	}
+
+	return streaming.NewAnimeWorldClient()
 }

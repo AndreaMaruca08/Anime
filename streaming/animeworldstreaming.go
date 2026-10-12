@@ -23,34 +23,11 @@ type Error struct {
 
 func (e *Error) Error() string { return "AnimeWorldError: " + e.Message }
 
-type SearchResult struct {
-	Name  string
-	URL   string
-	Cover string
-}
+// AnimeWorldClient is an alias to Client.
+type AnimeWorldClient = Client
 
-type Anime struct {
-	Name        string
-	URL         string
-	Cover       string
-	Description string
-	Info        map[string]any
-}
-
-type EpisodeLink struct {
-	ID         string
-	URL        string
-	ServerID   int
-	ServerName string
-	StreamURL  string
-}
-
-type Episode struct {
-	Number    string
-	ID        string
-	Links     []EpisodeLink
-	StreamURL string
-	Err       error
+func NewAnimeWorldClient() *AnimeWorldClient {
+	return NewClient()
 }
 
 // ---------- Client ----------
@@ -60,6 +37,12 @@ type Client struct {
 	HTTP        *http.Client
 	UserAgent   string
 	Concurrency int // richieste parallele per risolvere gli stream
+}
+
+var _ Provider = (*Client)(nil)
+
+func (c *Client) Name() string {
+	return "AnimeWorld"
 }
 
 func NewClient() *Client {

@@ -68,10 +68,10 @@ func (ui *UI) PrintBanner() {
 
 type PlayerCLI struct {
 	ui     *UI
-	client *streaming.Client
+	client streaming.Provider
 }
 
-func NewPlayerCLI(ui *UI, client *streaming.Client) *PlayerCLI {
+func NewPlayerCLI(ui *UI, client streaming.Provider) *PlayerCLI {
 	return &PlayerCLI{
 		ui:     ui,
 		client: client,
@@ -86,6 +86,10 @@ func isBackInput(input string) bool {
 	return strings.EqualFold(input, "b")
 }
 
+func isSettingsInput(input string) bool {
+	return strings.EqualFold(input, "i")
+}
+
 func parseSelection(input string, max int) (int, bool) {
 	idx, err := strconv.Atoi(input)
 	if err != nil || idx < 1 || idx > max {
@@ -98,11 +102,16 @@ func (p *PlayerCLI) Run() {
 	p.ui.PrintBanner()
 
 	for {
-		p.ui.Print("\n" + WrapIn("Cerca un anime (o 'q' per uscire): ", Yellow))
+		p.ui.Println(WrapIn(fmt.Sprintf("Provider attivo: %s", p.client.Name()), Green))
+		p.ui.Print("\n" + WrapIn("Cerca un anime (o 'q' per uscire) (o 'i' per cambiare impostazioni): ", Yellow))
 		query := p.ui.ReadInput("")
 		if isQuitInput(query) || query == "" {
 			p.ui.Println("Uscita dal player.")
 			return
+		}
+		if isSettingsInput(query) {
+			p.handleSettings()
+			continue
 		}
 
 		p.ui.Println(WrapIn("Ricerca in corso...", Cyan))
@@ -344,5 +353,93 @@ func (p *PlayerCLI) askQualityAndPlay(streamURL string, epNum string) {
 		play(streamURL, qualityNum)
 		p.ui.Println(WrapIn(fmt.Sprintf("Riproduzione episodio %s terminata. Puoi scegliere un altro episodio o qualità.", epNum), Green))
 		return
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Settings / Preferences
+// -----------------------------------------------------------------------------
+
+func (p *PlayerCLI) handleSettings() {
+	for {
+		var sb strings.Builder
+		sb.WriteString("\n")
+		sb.WriteString(WrapIn("=== Impostazioni ===", Green))
+		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("Provider attuale: %s%s%s\n", Cyan, p.client.Name(), Reset))
+		sb.WriteString(fmt.Sprintf("[%s1%s] Provider (server di streaming)\n", Yellow, Reset))
+		sb.WriteString(WrapIn("[b] Torna indietro | [q] Esci", Cyan))
+		sb.WriteString("\n")
+		sb.WriteString(WrapIn("Scegli quale impostazione cambiare: ", Yellow))
+
+		p.ui.Print(sb.String())
+		choice := p.ui.ReadInput("")
+
+		if isQuitInput(choice) {
+			p.ui.Println("Uscita dal player.")
+			os.Exit(0)
+		}
+		if isBackInput(choice) {
+			return
+		}
+
+		switch choice {
+		case "1":
+			p.selectProviderSettings()
+		default:
+			p.ui.Println(WrapIn("Opzione non valida.", Red))
+		}
+	}
+}
+
+func (p *PlayerCLI) selectProviderSettings() {
+	for {
+		var sb strings.Builder
+		sb.WriteString("\n")
+		sb.WriteString(WrapIn("--- Seleziona Provider di Streaming ---", Green))
+		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("[%s1%s] AnimeWorld (più stabile)\n", Yellow, Reset))
+		sb.WriteString(fmt.Sprintf("[%s2%s] AnimeUnity (qualità più alta / FHD)\n", Yellow, Reset))
+		sb.WriteString(WrapIn("[b] Torna indietro | [q] Esci", Cyan))
+		sb.WriteString("\n")
+		sb.WriteString(WrapIn("Scegli il provider desiderato (1/2): ", Yellow))
+
+		p.ui.Print(sb.String())
+		input := p.ui.ReadInput("")
+
+		if isQuitInput(input) {
+			p.ui.Println("Uscita dal player.")
+			os.Exit(0)
+		}
+		if isBackInput(input) {
+			return
+		}
+
+		switch input {
+		case "1":
+			p.updateProvider("animeworld", streaming.NewAnimeWorldClient())
+			return
+		case "2":
+			p.updateProvider("animeunity", streaming.NewAnimeUnityClient())
+			return
+		default:
+			p.ui.Println(WrapIn("Scelta non valida. Inserisci 1 o 2.", Red))
+		}
+	}
+}
+
+func (p *PlayerCLI) updateProvider(pref string, client streaming.Provider) {
+	p.client = client
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		cfg = DefaultConfig()
+	}
+	cfg.Preference = pref
+
+	if err := SaveConfig(cfg); err != nil {
+		p.ui.Println(WrapIn("Attenzione: impossibile salvare la preferenza su file: "+err.Error(), Red))
+	} else {
+		p.ui.Println(WrapIn(fmt.Sprintf("Provider aggiornato a '%s' e salvato nelle impostazioni!", client.Name()), Green))
 	}
 }
