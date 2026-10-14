@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="GoProfileHistory">
+    <profile entry="$USER_HOME$/GoLandProfiles/go-heap_with_gc-2026-10-10-105617-249.pprof">
+      <GoProfileMapEntry>
+        <option name="buildAnchorMillis" value="1791622537564" />
+        <option name="file" value="go-heap_with_gc-2026-10-10-105617-249.pprof" />
+        <option name="ours" value="true" />
+        <option name="profileType" value="HEAP_GC" />
+      </GoProfileMapEntry>
+    </profile>
+    <profile entry="$USER_HOME$/GoLandProfiles/go-allocs-2026-10-10-105703-625.pprof">
+      <GoProfileMapEntry>
+        <option name="buildAnchorMillis" value="1791622537564" />
+        <option name="file" value="go-allocs-2026-10-10-105703-625.pprof" />
+        <option name="ours" value="true" />
+        <option name="profileType" value="ALLOCS" />
+      </GoProfileMapEntry>
+    </profile>
+    <profile entry="$USER_HOME$/GoLandProfiles/go-goroutine-2026-10-10-105756-836.pprof">
+      <GoProfileMapEntry>
+        <option name="buildAnchorMillis" value="1791622537564" />
+        <option name="file" value="go-goroutine-2026-10-10-105756-836.pprof" />
+        <option name="ours" value="true" />
+        <option name="profileType" value="GOROUTINE" />
+      </GoProfileMapEntry>
+    </profile>
+    <profile entry="$USER_HOME$/GoLandProfiles/go-heap_with_gc-2026-10-10-111107-353.pprof">
+      <GoProfileMapEntry>
+        <option name="buildAnchorMillis" value="1791623419534" />
+        <option name="file" value="go-heap_with_gc-2026-10-10-111107-353.pprof" />
+        <option name="ours" value="true" />
+        <option name="profileType" value="HEAP_GC" />
+      </GoProfileMapEntry>
+    </profile>
+  </component>
+</project>

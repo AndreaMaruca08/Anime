@@ -1,16 +1,15 @@
-// player.go
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"os"
-	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"UpscalerCLI/streaming"
+
+	"github.com/nsf/termbox-go"
 )
 
 const (
@@ -28,407 +27,708 @@ func WrapIn(s string, fixes ...string) string {
 	return s + Reset
 }
 
-// -----------------------------------------------------------------------------
-// UI / Terminal Helpers
-// -----------------------------------------------------------------------------
+var (
+	colDefault = termbox.ColorDefault
+	colWhite   = termbox.ColorWhite | termbox.AttrBold
+	colGreen   = termbox.ColorGreen | termbox.AttrBold
+	colYellow  = termbox.ColorYellow | termbox.AttrBold
+	colCyan    = termbox.ColorCyan | termbox.AttrBold
+	colRed     = termbox.ColorRed | termbox.AttrBold
+	colBlack   = termbox.ColorBlack
+	colMagenta = termbox.ColorMagenta | termbox.AttrBold
+)
 
-type UI struct {
-	scanner *bufio.Scanner
-	writer  io.Writer
-}
-
-func NewUI(r io.Reader, w io.Writer) *UI {
-	return &UI{
-		scanner: bufio.NewScanner(r),
-		writer:  w,
+func tbFill(x, y, w int, ch rune, fg, bg termbox.Attribute) {
+	for i := range w {
+		termbox.SetCell(x+i, y, ch, fg, bg)
 	}
 }
 
-func (ui *UI) Print(s string) {
-	fmt.Fprint(ui.writer, s)
-}
-
-func (ui *UI) Println(s string) {
-	fmt.Fprintln(ui.writer, s)
-}
-
-func (ui *UI) ReadInput(prompt string) string {
-	if prompt != "" {
-		ui.Print(prompt)
+func tbPrint(x, y int, fg, bg termbox.Attribute, text string) int {
+	col := x
+	for _, r := range text {
+		termbox.SetCell(col, y, r, fg, bg)
+		col++
 	}
-	if ui.scanner.Scan() {
-		return strings.TrimSpace(ui.scanner.Text())
+	return col
+}
+
+func tbPrintCentered(y int, fg, bg termbox.Attribute, text string) {
+	w, _ := termbox.Size()
+	runes := []rune(text)
+	x := (w - len(runes)) / 2
+	if x < 0 {
+		x = 0
 	}
-	return ""
+	tbPrint(x, y, fg, bg, text)
 }
 
-func (ui *UI) PrintBanner() {
-	ui.Println("\u001B[0;37m    ▄▄\u001B[0;90m▄\u001B[0;37m     \u001B[0;97m▄▄\u001B[0;37m▄▄    \u001B[0;97m▄\u001B[0;37m▄\u001B[0;90m▄▄▄\u001B[0;37m  \u001B[0;97m▄▄\u001B[0;37m▄▄▄\u001B[0;90m▄▄\u001B[0;37m  \u001B[0;97m▄▄\u001B[0;37m▄▄▄      \u001B[0;90m▄▄▄\u001B[0;37m  \u001B[0;97m▄▄\u001B[0;37m▄▄▄\u001B[0;90m▄▄▄▄▄\u001B[0;37m    \u001B[0;97m▄▄\u001B[0;37m▄▄▄▄\u001B[0;90m▄\u001B[0;37m \u001B[0;97m▄\u001B[0;37m▄\u001B[0;90m▄\u001B[0;37m▄▄   \u001B[0;97m▄\u001B[0;37m▄▄▄\u001B[0;90m▄\u001B[0;37m   \u001B[0;90m▄▄▄▄\u001B[0;37m \u001B[0m\n\u001B[0;37m  \u001B[0;97m▄\u001B[0;97;41m▀\u001B[0;91;41m█▓▓\u001B[0;90;41m▀\u001B[0;90m▄\u001B[0;37m  \u001B[0;97m▀\u001B[0;97;41m▄\u001B[0;91;41m░▒▒▒\u001B[0;90m▄\u001B[0;37m ▀\u001B[0;90;41m▄\u001B[0;31m▓\u001B[0;91;41m▒░\u001B[0;90;41m▀\u001B[0;90m▌\u001B[0;97m▀\u001B[0;97;41m▄\u001B[0;91;41m░▒▒▒▓\u001B[0;90m█▀\u001B[0;97m▀\u001B[0;97;41m▄\u001B[0;91;41m░▒▒▒\u001B[0;90m█\u001B[0;37m   \u001B[0;97m▄\u001B[0;37;41m▀\u001B[0;91;41m▒░\u001B[0;90;41m▄\u001B[0;90m▀\u001B[0;97m▀\u001B[0;97;41m▄\u001B[0;91;41m░▒▒▒▓▓▓█\u001B[0;90;41m▐\u001B[0;37m    \u001B[0;97m▓\u001B[0;91;41m░▒▒▒\u001B[0;90m█\u001B[0;37m  \u001B[0;97;47m░\u001B[0;91;41m▒▒░\u001B[0;90;41m▄\u001B[0;37m  \u001B[0;97;47m▌\u001B[0;91;41m░▒▒▒\u001B[0;90m▌\u001B[0;37m  \u001B[0;90;41m▄\u001B[0;91;41m▒▒░\u001B[0;90;41m▄\u001B[0;90m▌\u001B[0m\n\u001B[0;37m  \u001B[0;97;41m▌\u001B[0;91;41m▓\u001B[0;90;41m▄\u001B[0;90m▀\u001B[0;90;41m▄\u001B[0;91;41m▒\u001B[0;90;41m▐\u001B[0;37m    \u001B[0;31;47m▐\u001B[0;91;41m░▒▓▒\u001B[0;90m█\u001B[0;37m  \u001B[0;90;47m▌\u001B[0;91;41m░\u001B[0;90;41m▓\u001B[0;31m█\u001B[0;90m▌\u001B[0;37m  \u001B[0;31;47m▐\u001B[0;91;41m░▒\u001B[0;90;41m▄\u001B[0;90m█\u001B[0;37m    \u001B[0;31;47m▐\u001B[0;91;41m░▒▓▒\u001B[0;90;47m▄\u001B[0;37m▄\u001B[0;37;41m▀\u001B[0;91;41m░▓░\u001B[0;90;41m▐\u001B[0;90m▌\u001B[0;37m   \u001B[0;31;47m▐\u001B[0;91;41m░▒\u001B[0;90;41m▄\u001B[0;90m▀▀▀\u001B[0;90;41m▄\u001B[0;90m█\u001B[0;37m    \u001B[0;97m▐\u001B[0;31;47m▐\u001B[0;91;41m░▒\u001B[0;90;41m▄\u001B[0;90m▌\u001B[0;37m  ▐\u001B[0;90;41m▌\u001B[0;91;41m░\u001B[0;90;41m░▐\u001B[0;37m  \u001B[0;97m▐\u001B[0;31;47m▐\u001B[0;91;41m░▒\u001B[0;90;41m▄\u001B[0;37m   ▐\u001B[0;90;41m▌\u001B[0;91;41m░\u001B[0;90;41m▐\u001B[0;90m▀\u001B[0;37m \u001B[0m\n\u001B[0;37m ▐\u001B[0;91;41m▒▒\u001B[0;90m▌\u001B[0;37m ▐\u001B[0;91;41m░▒\u001B[0;90m▌\u001B[0;37m   \u001B[0;31;47m▐\u001B[0;31m▓\u001B[0;91;41m░▒▓▒\u001B[0;90m▌\u001B[0;37m \u001B[0;90;47m▐\u001B[0;90;41m▓░\u001B[0;31m█\u001B[0;90m▌\u001B[0;37m  \u001B[0;31;47m▐\u001B[0;31m▓\u001B[0;31;41m \u001B[0;90;41m▓\u001B[0;90m▌\u001B[0;37m    \u001B[0;31;47m▐\u001B[0;31m▓\u001B[0;31;41m \u001B[0;90;41m▐\u001B[0;90m█\u001B[0;31m█▒█▓\u001B[0;90;41m░▓\u001B[0;90m█\u001B[0;37m    \u001B[0;31;47m▐\u001B[0;31m▓\u001B[0;31;41m \u001B[0;90;41m▐\u001B[0;90m▄▄▄\u001B[0;37m       \u001B[0;31;47m▐\u001B[0;31m▓\u001B[0;31;41m \u001B[0;90;41m▐\u001B[0;90m▄\u001B[0;37m▄▄\u001B[0;97;41m▀\u001B[0;90;41m░▓░\u001B[0;90m█\u001B[0;37m   \u001B[0;31;47m▐\u001B[0;31m▓\u001B[0;31;41m \u001B[0;90;41m▐\u001B[0;90m▄\u001B[0;37m▄▄\u001B[0;97;41m▀\u001B[0;90;41m░\u001B[0;90m▀\u001B[0;37m   \u001B[0m\n\u001B[0;37m \u001B[0;90m▐\u001B[0;31m█▓\u001B[0;90;41m▀\u001B[0;37;41m▀\u001B[0;97;41m▀\u001B[0;31m▓█\u001B[0;90m▌\u001B[0;37m   \u001B[0;90;41m▌\u001B[0;31m▒▓\u001B[0;90m█▌\u001B[0;31m█\u001B[0;91;41m░\u001B[0;31m▄▐▒▓▓\u001B[0;90m█\u001B[0;37m  \u001B[0;90;41m▌\u001B[0;31m▒▓▓\u001B[0;90m▌\u001B[0;37m    \u001B[0;90;41m▌\u001B[0;31m▒▓\u001B[0;90m█▌▀\u001B[0;90;41m▄\u001B[0;90m▀█\u001B[0;31m▓\u001B[0;90;41m░▐\u001B[0;90m▌\u001B[0;37m   \u001B[0;90;41m▌\u001B[0;31m▒▓▓▒░\u001B[0;90m▌\u001B[0;37m        ▀\u001B[0;90;41m▄\u001B[0;31m▓▒░\u001B[0;90m░\u001B[0;31m░▓\u001B[0;90;41m░▐▐\u001B[0;37m   \u001B[0;90;41m▌\u001B[0;31m▒▓▓▒░\u001B[0;37m \u001B[0;31m░\u001B[0;90;41m▀\u001B[0;90m▄\u001B[0;37m   \u001B[0m\n\u001B[0;37m \u001B[0;90;41m▌\u001B[0;31m▓▒\u001B[0;90m▄▄▄\u001B[0;31m▒▓\u001B[0;90;41m▐\u001B[0;37m   \u001B[0;90m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90m█\u001B[0;37m \u001B[0;90m▐\u001B[0;31m░▒░\u001B[0;37m \u001B[0;31m░░\u001B[0;90m▌\u001B[0;37m  \u001B[0;90m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90;41m▐\u001B[0;90m▌\u001B[0;37m    \u001B[0;90m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90m█\u001B[0;37m    \u001B[0;90m█\u001B[0;31m░▓░\u001B[0;90m█\u001B[0;37m   \u001B[0;90m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90;41m▐\u001B[0;90m▀▀\u001B[0;37m           \u001B[0;90m▀▀▀▀\u001B[0;37;41m▄\u001B[0;31m░▓░\u001B[0;90m█\u001B[0;37m   \u001B[0;90m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90m▄█▀▀\u001B[0;37m▄\u001B[0;31m░▓\u001B[0;90m▀▄\u001B[0;37m \u001B[0m\n\u001B[0;37m \u001B[0;90m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90m▌\u001B[0;37m ▐ \u001B[0;31m░\u001B[0;90m▐\u001B[0;37m  \u001B[0;90m▐▌\u001B[0;37m  \u001B[0;90m▐▌\u001B[0;37m \u001B[0;90m▀▄\u001B[0;37m \u001B[0;31m░\u001B[0;37m \u001B[0;90m▐▌\u001B[0;37m  \u001B[0;90m▌\u001B[0;37m   \u001B[0;90m█\u001B[0;37m   \u001B[0;90m▐▌\u001B[0;37m  \u001B[0;90m▐▌\u001B[0;37m   \u001B[0;97m▐\u001B[0;37m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90m▐▌\u001B[0;37m  \u001B[0;90m▌\u001B[0;37m  \u001B[0;90m▀▄▄▄▀█\u001B[0;37m            █ \u001B[0;31m░\u001B[0;37m \u001B[0;90m█\u001B[0;37m  \u001B[0;90m▐▌\u001B[0;37m  \u001B[0;90m▐▌\u001B[0;37m  \u001B[0;97m▐\u001B[0;37m▌\u001B[0;31m░\u001B[0;37m \u001B[0;90m▐▌\u001B[0m\n\u001B[0;37m▐  \u001B[0;90m▐\u001B[0;37m   ▌  \u001B[0;90m▌\u001B[0;37m \u001B[0;90m█\u001B[0;37m    \u001B[0;90m▀▄\u001B[0;37m \u001B[0;90m▀▄\u001B[0;37m  \u001B[0;90m█\u001B[0;37m \u001B[0;90m▄▀\u001B[0;37m  \u001B[0;90m░▓█▄\u001B[0;37m  \u001B[0;90m█\u001B[0;37m    \u001B[0;90m▀▄\u001B[0;37m  █    \u001B[0;90m█▄▀\u001B[0;37m        \u001B[0;90m▐\u001B[0;37m            \u001B[0;90;47m▓\u001B[0;90m░\u001B[0;37m  \u001B[0;90m▐▌\u001B[0;37m \u001B[0;90m█\u001B[0;37m    \u001B[0;90m▀▄\u001B[0;37m █    \u001B[0;90m█\u001B[0m\n\u001B[0;37m▀\u001B[0;90m▀▀▀\u001B[0;37m   ▀\u001B[0;90m▀▀▀\u001B[0;37m  \u001B[0;90m▀▀▀▀▀\u001B[0;37m    \u001B[0;90m▀▀\u001B[0;37m   \u001B[0;90m▀▀▀▀▀▀\u001B[0;37m    \u001B[0;90m▀▀▀▀▀\u001B[0;37m    \u001B[0;90m▀▀▀▀\u001B[0;37m  \u001B[0;90m▀▀▀▀▀▀▀▀▀▀\u001B[0;37m            \u001B[0;90m▀▀▀▀▀\u001B[0;37m   \u001B[0;90m▀▀▀▀▀\u001B[0;37m   \u001B[0;90m▀▀▀▀\u001B[0;37m \u001B[0m\nBy Andrea Maruca  | https://github.com/AndreaMaruca08")
+func tbDrawBox(x, y, w, h int, fg, bg termbox.Attribute) {
+	// top
+	termbox.SetCell(x, y, '╔', fg, bg)
+	tbFill(x+1, y, w-2, '═', fg, bg)
+	termbox.SetCell(x+w-1, y, '╗', fg, bg)
+	// bottom
+	termbox.SetCell(x, y+h-1, '╚', fg, bg)
+	tbFill(x+1, y+h-1, w-2, '═', fg, bg)
+	termbox.SetCell(x+w-1, y+h-1, '╝', fg, bg)
+	// sides
+	for i := 1; i < h-1; i++ {
+		termbox.SetCell(x, y+i, '║', fg, bg)
+		termbox.SetCell(x+w-1, y+i, '║', fg, bg)
+	}
 }
 
-type PlayerCLI struct {
-	ui     *UI
+func tbClear() {
+	termbox.Clear(colDefault, colDefault)
+}
+
+func tbFlush() {
+	termbox.Flush()
+}
+
+// screenWidth ritorna la larghezza corrente del terminale
+func screenWidth() int {
+	w, _ := termbox.Size()
+	return w
+}
+
+// screenHeight ritorna l'altezza corrente del terminale
+func screenHeight() int {
+	_, h := termbox.Size()
+	return h
+}
+
+var bannerLines = []string{
+	"                                                                                              ",
+	"               L.                                              ,;                .   G:      ",
+	"               EW:        ,ft t                              f#i                ,W   E#,    :",
+	"            .. E##;       t#E Ej            ..       :     .E#t                i##   E#t  .GE",
+	"           ;W, E###t      t#E E#,          ,W,     .Et    i#W,                f###   E#t j#K",
+	"           j##, E#fE#f     t#E E#t         t##,    ,W#t   L#D.                G####   E#GK#f  ",
+	"    G###, E#t D#G    t#E E#t        L###,   j###t :K#Wfff;            .K#Ki##   EEE",
+	"  :E####, E#t  f#E.  t#E E#t      .E#j##,  G#fE#t i##WLLLLt          ,W#D.,##   EEE",
+	"      ;W#DG##, E#t   t#K: t#E E#t     ;WW; ##,:K#i E#t  .E#L             i##E,,i##,  E#jL#D:",
+	"      j###DW##, E#t    ;#W,t#E E#t    j#E.  ##f#W,  E#t    f#E:          ;DDDDDDE##DGiE#t ,K#j",
+	"     G##i,,G##, E#t     :K#D#E E#t  .D#L    ###K:   E#t     ,WW;                ,##   E#t   jD",
+	"   :K#K:   L##, E#t      .E##E E#t :K#t     ##D.    E#t      .D#;               ,##   j#t     ",
+	"  ;##D.    L##, ..         G#E E#t ...      #G      ..         tt               .E#    ,;     ",
+	"  ,,,      .,,              fE ,;.          j                                     t           ",
+	"                             ,                                                                "}
+
+// tbDrawHeader disegna un header con banner ASCII art centrato su palette rossa
+func tbDrawHeader(y int) int {
+	w := screenWidth()
+
+	// Riga superiore di confine
+	tbFill(0, y, w, '═', colRed, colDefault)
+	y++
+
+	// Logo ASCII art centrato — rosso brillante
+	for _, line := range bannerLines {
+		runes := []rune(line)
+		x := (w - len(runes)) / 2
+		if x < 0 {
+			x = 0
+		}
+		tbPrint(x, y, colRed, colDefault, line)
+		y++
+	}
+
+	// Sottotitolo: descrizione a sinistra, autore a destra
+	subLeft := "  ◈  4K Streaming Player"
+	subRight := "by Andrea Maruca  ◈  "
+	tbPrint(2, y, colMagenta, colDefault, subLeft)
+	tbPrint(w-len([]rune(subRight))-1, y, colMagenta, colDefault, subRight)
+	y++
+
+	// Riga inferiore di confine
+	tbFill(0, y, w, '═', colRed, colDefault)
+	y++
+
+	return y
+}
+
+// tbDrawFooter disegna una barra in fondo con i controlli disponibili
+func tbDrawFooter(hints string) {
+	_, h := termbox.Size()
+	w := screenWidth()
+	tbFill(0, h-2, w, '─', colMagenta, colDefault)
+	tbPrint(2, h-1, colMagenta, colDefault, "  "+hints)
+}
+
+// tbDrawSeparator disegna una riga separatrice
+func tbDrawSeparator(y int) {
+	w := screenWidth()
+	tbFill(0, y, w, '─', colMagenta, colDefault)
+}
+
+func readLine(x, y int, fg, bg termbox.Attribute) string {
+	var buf []rune
+	termbox.SetCursor(x, y)
+	termbox.Flush()
+
+	for {
+		ev := termbox.PollEvent()
+		switch ev.Type {
+		case termbox.EventKey:
+			switch ev.Key {
+			case termbox.KeyEsc:
+				termbox.HideCursor()
+				return ""
+			case termbox.KeyEnter:
+				termbox.HideCursor()
+				return strings.TrimSpace(string(buf))
+			case termbox.KeyBackspace, termbox.KeyBackspace2:
+				if len(buf) > 0 {
+					buf = buf[:len(buf)-1]
+					termbox.SetCell(x+utf8.RuneCountInString(string(buf)), y, ' ', fg, bg)
+					termbox.SetCursor(x+len(buf), y)
+					termbox.Flush()
+				}
+			case termbox.KeySpace:
+				buf = append(buf, ' ')
+				termbox.SetCell(x+len(buf)-1, y, ' ', fg, bg)
+				termbox.SetCursor(x+len(buf), y)
+				termbox.Flush()
+			default:
+				if ev.Ch != 0 {
+					buf = append(buf, ev.Ch)
+					termbox.SetCell(x+len(buf)-1, y, ev.Ch, fg, bg)
+					termbox.SetCursor(x+len(buf), y)
+					termbox.Flush()
+				}
+			}
+		case termbox.EventResize:
+			termbox.Flush()
+		}
+	}
+}
+
+type menuItem struct {
+	label    string
+	subLabel string
+}
+
+// azione: "select" | "back" | "quit"
+func showMenu(title string, items []menuItem, startIndex int, extraHint string) (int, string) {
+	selected := startIndex
+	if selected >= len(items) {
+		selected = 0
+	}
+	offset := 0
+
+	for {
+		tbClear()
+		_, h := termbox.Size()
+		w := screenWidth()
+
+		// Header
+		row := tbDrawHeader(0)
+
+		// Titolo pagina
+		tbPrint(2, row, colRed, colDefault, title)
+		row += 2
+
+		listHeight := max(h-row-3, 1)
+
+		if selected < offset {
+			offset = selected
+		}
+		if selected >= offset+listHeight {
+			offset = selected - listHeight + 1
+		}
+
+		// Disegna lista
+		for i := 0; i < listHeight && offset+i < len(items); i++ {
+			idx := offset + i
+			item := items[idx]
+			y := row + i
+
+			isCurrent := idx == selected
+			var rowFg, rowBg termbox.Attribute
+			var prefix string
+			if isCurrent {
+				rowFg = colWhite
+				rowBg = termbox.ColorRed
+				prefix = "▶ "
+			} else {
+				rowFg = colWhite
+				rowBg = colDefault
+				prefix = "  "
+			}
+
+			// riempi la riga di sfondo
+			tbFill(0, y, w, ' ', rowFg, rowBg)
+
+			label := fmt.Sprintf("%s %s", prefix, item.label)
+			tbPrint(1, y, rowFg, rowBg, label)
+			if item.subLabel != "" {
+				tbPrint(w-len([]rune(item.subLabel))-2, y, colMagenta, rowBg, item.subLabel)
+			}
+		}
+
+		// Freccia scroll se ci sono altri elementi
+		if offset+listHeight < len(items) {
+			tbPrint(w/2, row+listHeight, colRed, colDefault, "▼ scorri")
+		}
+		if offset > 0 {
+			tbPrint(w/2, row-1, colRed, colDefault, "▲ scorri")
+		}
+
+		hint := "↑↓ naviga  Enter seleziona  B torna  Q esci"
+		if extraHint != "" {
+			hint = extraHint
+		}
+		tbDrawFooter(hint)
+		tbFlush()
+
+		ev := termbox.PollEvent()
+		if ev.Type == termbox.EventKey {
+			switch ev.Key {
+			case termbox.KeyArrowUp:
+				if selected > 0 {
+					selected--
+				}
+			case termbox.KeyArrowDown:
+				if selected < len(items)-1 {
+					selected++
+				}
+			case termbox.KeyEnter:
+				return selected, "select"
+			case termbox.KeyEsc:
+				return selected, "back"
+			}
+			switch ev.Ch {
+			case 'b', 'B':
+				return selected, "back"
+			case 'q', 'Q':
+				return selected, "quit"
+			}
+		}
+	}
+}
+
+// showSearchScreen mostra l'input di ricerca. Ritorna query, action ("search"|"settings"|"quit")
+func showSearchScreen(providerName string) (string, string) {
+	for {
+		tbClear()
+		w := screenWidth()
+
+		row := tbDrawHeader(0)
+		tbPrint(2, row, colRed, colDefault, fmt.Sprintf("◈ Provider: %s", providerName))
+		row += 2
+
+		tbPrint(2, row, colMagenta, colDefault, "  Cerca un anime:")
+		row++
+		tbDrawSeparator(row)
+		row++
+
+		prompt := "▶ "
+		tbPrint(2, row, colRed, colDefault, prompt)
+		tbFill(2+len([]rune(prompt)), row, w-4-len([]rune(prompt)), '▁', colMagenta, colDefault)
+
+		tbDrawFooter("Enter cerca  I impostazioni  Q esci")
+		tbFlush()
+
+		query := readLine(2+len([]rune(prompt)), row, colWhite, colDefault)
+		if query == "" {
+			// controlla se è stato premuto ESC (readLine ritorna "" anche con ESC)
+			// In questo caso mostriamo di nuovo la schermata e catturiamo altri tasti
+			// Gestiamo I e Q con un evento dopo
+			tbClear()
+			tbFlush()
+			// leggiamo un singolo evento per gestire I/Q
+			ev := termbox.PollEvent()
+			if ev.Type == termbox.EventKey {
+				switch ev.Ch {
+				case 'i', 'I':
+					return "", "settings"
+				case 'q', 'Q':
+					return "", "quit"
+				}
+				switch ev.Key {
+				case termbox.KeyEsc:
+					return "", "quit"
+				}
+			}
+			continue
+		}
+
+		lower := strings.ToLower(query)
+		if lower == "q" || lower == "quit" {
+			return "", "quit"
+		}
+		if lower == "i" {
+			return "", "settings"
+		}
+		return query, "search"
+	}
+}
+
+func showMessage(title, msg string, fg termbox.Attribute) {
+	tbClear()
+	w := screenWidth()
+	row := tbDrawHeader(0)
+	row++
+	tbPrintCentered(row, fg, colDefault, title)
+	row += 2
+	// wrap lunga
+	words := strings.Fields(msg)
+	line := ""
+	for _, w2 := range words {
+		if len(line)+len(w2)+1 > w-4 {
+			tbPrintCentered(row, colWhite, colDefault, line)
+			row++
+			line = w2
+		} else {
+			if line != "" {
+				line += " "
+			}
+			line += w2
+		}
+	}
+	if line != "" {
+		tbPrintCentered(row, colWhite, colDefault, line)
+	}
+	tbFlush()
+}
+
+func showLoading(msg string) {
+	showMessage("◈  Caricamento...", msg, colRed)
+}
+
+type PlayerTUI struct {
 	client streaming.Provider
 }
 
-func NewPlayerCLI(ui *UI, client streaming.Provider) *PlayerCLI {
-	return &PlayerCLI{
-		ui:     ui,
-		client: client,
+func NewPlayerTUI(client streaming.Provider) *PlayerTUI {
+	return &PlayerTUI{client: client}
+}
+
+func (p *PlayerTUI) Run() {
+	if err := termbox.Init(); err != nil {
+		fmt.Fprintln(os.Stderr, "Impossibile inizializzare termbox:", err)
+		os.Exit(1)
 	}
-}
+	defer termbox.Close()
 
-func isQuitInput(input string) bool {
-	return strings.EqualFold(input, "q")
-}
-
-func isBackInput(input string) bool {
-	return strings.EqualFold(input, "b")
-}
-
-func isSettingsInput(input string) bool {
-	return strings.EqualFold(input, "i")
-}
-
-func parseSelection(input string, max int) (int, bool) {
-	idx, err := strconv.Atoi(input)
-	if err != nil || idx < 1 || idx > max {
-		return 0, false
-	}
-	return idx - 1, true
-}
-
-func (p *PlayerCLI) Run() {
-	p.ui.PrintBanner()
+	termbox.SetInputMode(termbox.InputEsc)
 
 	for {
-		p.ui.Println(WrapIn(fmt.Sprintf("Provider attivo: %s", p.client.Name()), Green))
-		p.ui.Print("\n" + WrapIn("Cerca un anime (o 'q' per uscire) (o 'i' per cambiare impostazioni): ", Yellow))
-		query := p.ui.ReadInput("")
-		if isQuitInput(query) || query == "" {
-			p.ui.Println("Uscita dal player.")
+		query, action := showSearchScreen(p.client.Name())
+		switch action {
+		case "quit":
 			return
-		}
-		if isSettingsInput(query) {
-			p.handleSettings()
+		case "settings":
+			if quit := p.runSettings(); quit {
+				return
+			}
 			continue
 		}
 
-		p.ui.Println(WrapIn("Ricerca in corso...", Cyan))
+		// ricerca
+		showLoading("Ricerca in corso per: " + query)
 		ctx := context.Background()
 		results, err := p.client.Search(ctx, query)
 		if err != nil {
-			p.ui.Println(WrapIn("Errore durante la ricerca: "+err.Error(), Red))
+			p.showError("Errore ricerca", err.Error())
 			continue
 		}
-
 		if len(results) == 0 {
-			p.ui.Println(WrapIn("Nessun anime trovato per la ricerca effettuata.", Yellow))
+			p.showError("Nessun risultato", "Nessun anime trovato per: "+query)
 			continue
 		}
 
-		if shouldExit := p.selectAnimeLoop(ctx, query, results); shouldExit {
+		if quit := p.runSelectAnime(ctx, query, results); quit {
 			return
 		}
-
-		p.ui.Println("")
-		p.ui.PrintBanner()
 	}
 }
 
-func (p *PlayerCLI) selectAnimeLoop(ctx context.Context, query string, results []streaming.SearchResult) bool {
+// runSelectAnime — pagina lista risultati di ricerca
+func (p *PlayerTUI) runSelectAnime(ctx context.Context, query string, results []streaming.SearchResult) bool {
+	items := make([]menuItem, len(results))
+	for i, r := range results {
+		items[i] = menuItem{label: r.Name}
+	}
+	lastSel := 0
 	for {
-		var sb strings.Builder
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn(fmt.Sprintf("--- Risultati trovati per '%s' ---", query), Green))
-		sb.WriteString("\n")
-		for i, res := range results {
-			sb.WriteString(fmt.Sprintf("[%s%d%s] %s\n", Yellow, i+1, Reset, res.Name))
+		idx, action := showMenu(
+			fmt.Sprintf("Risultati per \"%s\"", query),
+			items, lastSel,
+			"↑↓ naviga  Enter seleziona  B nuova ricerca  Q esci",
+		)
+		switch action {
+		case "quit":
+			return true
+		case "back":
+			return false
+		case "select":
+			lastSel = idx
+			selected := results[idx]
+
+			showLoading("Caricamento dettagli: " + selected.Name)
+			anime, err := p.client.GetAnime(ctx, selected.URL)
+			if err != nil {
+				p.showError("Errore", err.Error())
+				continue
+			}
+
+			if quit := p.runAnimeMenu(ctx, anime); quit {
+				return true
+			}
 		}
-		sb.WriteString(WrapIn("[b] Torna alla ricerca | [q] Esci", Cyan))
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn("Seleziona il numero dell'anime: ", Yellow))
+	}
+}
 
-		p.ui.Print(sb.String())
-		input := p.ui.ReadInput("")
+// runAnimeMenu — menù episodi per un anime
+func (p *PlayerTUI) runAnimeMenu(ctx context.Context, anime *streaming.Anime) bool {
+	items := []menuItem{
+		{label: "Inserisci numero episodio direttamente (veloce)"},
+		{label: "Visualizza tutti gli episodi disponibili e scegline uno"},
+	}
 
-		if isQuitInput(input) {
-			p.ui.Println("Uscita dal player.")
+	lastSel := 0
+	for {
+		idx, action := showMenu(
+			fmt.Sprintf("=== %s ===", anime.Name),
+			items, lastSel,
+			"↑↓ naviga  Enter seleziona  B torna alla lista  Q esci",
+		)
+		switch action {
+		case "quit":
+			return true
+		case "back":
+			return false
+		}
+		lastSel = idx
+		switch idx {
+		case 0:
+			if quit := p.runEpisodeInput(ctx, anime); quit {
+				return true
+			}
+		case 1:
+			if quit := p.runAllEpisodes(ctx, anime); quit {
+				return true
+			}
+		}
+	}
+}
+
+// runEpisodeInput — chiede numero episodio tramite input testuale
+func (p *PlayerTUI) runEpisodeInput(ctx context.Context, anime *streaming.Anime) bool {
+	for {
+		tbClear()
+		row := tbDrawHeader(0)
+		tbPrint(2, row, colMagenta, colDefault, fmt.Sprintf("Episodio di: %s", anime.Name))
+		row += 2
+		tbPrint(2, row, colWhite, colDefault, "Numero episodio (es. 1, 2, 12...):")
+		row++
+		tbDrawSeparator(row)
+		row++
+		prompt := "▶ "
+		tbPrint(2, row, colRed, colDefault, prompt)
+		tbDrawFooter("Enter conferma  Esc torna  Q esci")
+		tbFlush()
+
+		epNum := readLine(2+len([]rune(prompt)), row, colWhite, colDefault)
+		if epNum == "" {
+			return false
+		}
+		lower := strings.ToLower(epNum)
+		if lower == "q" {
 			return true
 		}
-		if isBackInput(input) {
+		if lower == "b" {
 			return false
 		}
 
-		idx, ok := parseSelection(input, len(results))
-		if !ok {
-			p.ui.Println(WrapIn("Selezione non valida.", Red))
-			continue
-		}
-
-		selectedResult := results[idx]
-		p.ui.Println(WrapIn(fmt.Sprintf("Caricamento dettagli di: %s...", selectedResult.Name), Cyan))
-
-		animeObj, err := p.client.GetAnime(ctx, selectedResult.URL)
+		showLoading(fmt.Sprintf("Risoluzione link episodio %s...", epNum))
+		episodes, err := p.client.GetEpisodes(ctx, anime, epNum)
 		if err != nil {
-			p.ui.Println(WrapIn("Errore nel recupero dell'anime: "+err.Error(), Red))
+			p.showError("Errore", err.Error())
 			continue
 		}
 
-		p.handleAnimeEpisodes(ctx, animeObj)
+		var target *streaming.Episode
+		for i := range episodes {
+			if episodes[i].Number == epNum {
+				target = &episodes[i]
+				break
+			}
+		}
+		if target == nil || target.StreamURL == "" {
+			msg := "Stream non trovato."
+			if target != nil && target.Err != nil {
+				msg = target.Err.Error()
+			}
+			p.showError("Errore", msg)
+			continue
+		}
+
+		if quit := p.runQualityMenu(target.StreamURL, target.Number); quit {
+			return true
+		}
+		return false
 	}
 }
 
-func (p *PlayerCLI) handleAnimeEpisodes(ctx context.Context, anime *streaming.Anime) {
-	for {
-		var menuSb strings.Builder
-		menuSb.WriteString("\n")
-		menuSb.WriteString(WrapIn(fmt.Sprintf("=== %s ===", anime.Name), Green))
-		menuSb.WriteString("\n")
-		menuSb.WriteString(WrapIn("Scelte disponibili per gli episodi:", Cyan))
-		menuSb.WriteString("\n1. Inserisci numero episodio direttamente (veloce)\n")
-		menuSb.WriteString("2. Visualizza tutti gli episodi disponibili e scegline uno\n")
-		menuSb.WriteString("[b] Torna alla lista anime | [q] Esci\n")
-		menuSb.WriteString(WrapIn("Scegli un'opzione o inserisci direttamente il numero dell'episodio (es. 1, 2, ...): \n", Yellow))
-
-		p.ui.Print(menuSb.String())
-		choice := p.ui.ReadInput("")
-
-		if isQuitInput(choice) {
-			p.ui.Println("Uscita dal player.")
-			os.Exit(0)
-		}
-		if isBackInput(choice) {
-			return
-		}
-
-		if choice == "2" {
-			p.fetchAndSelectFromAllEpisodes(ctx, anime)
-		} else {
-			p.playSingleEpisodeByInput(ctx, anime, choice)
-		}
-	}
-}
-
-func (p *PlayerCLI) fetchAndSelectFromAllEpisodes(ctx context.Context, anime *streaming.Anime) {
-	p.ui.Println(WrapIn("Recupero lista completa degli episodi in corso (potrebbe richiedere qualche secondo)...", Cyan))
+// runAllEpisodes — scarica tutti gli episodi e mostra lista
+func (p *PlayerTUI) runAllEpisodes(ctx context.Context, anime *streaming.Anime) bool {
+	showLoading("Recupero lista completa episodi...")
 	episodes, err := p.client.GetEpisodes(ctx, anime)
 	if err != nil {
-		p.ui.Println(WrapIn("Errore nel caricamento degli episodi: "+err.Error(), Red))
-		return
+		p.showError("Errore", err.Error())
+		return false
 	}
 	if len(episodes) == 0 {
-		p.ui.Println(WrapIn("Nessun episodio trovato.", Red))
-		return
+		p.showError("Nessun episodio", "Nessun episodio trovato.")
+		return false
 	}
 
-	p.selectAndPlayEpisodeList(episodes)
-}
-
-func (p *PlayerCLI) playSingleEpisodeByInput(ctx context.Context, anime *streaming.Anime, choice string) {
-	epNum := choice
-	if choice == "1" {
-		epNum = p.ui.ReadInput(WrapIn("Inserisci il numero dell'episodio da guardare: ", Yellow))
-		if isBackInput(epNum) {
-			return
+	items := make([]menuItem, len(episodes))
+	for i, ep := range episodes {
+		status := ""
+		if ep.StreamURL == "" {
+			status = "non disp."
 		}
-		if isQuitInput(epNum) {
-			p.ui.Println("Uscita dal player.")
-			os.Exit(0)
+		items[i] = menuItem{
+			label:    fmt.Sprintf("Episodio %s", ep.Number),
+			subLabel: status,
 		}
 	}
 
-	if epNum == "" {
-		return
-	}
-
-	p.ui.Println(WrapIn(fmt.Sprintf("Risoluzione link per episodio %s...", epNum), Cyan))
-	episodes, err := p.client.GetEpisodes(ctx, anime, epNum)
-	if err != nil {
-		p.ui.Println(WrapIn("Errore nel recupero dell'episodio: "+err.Error(), Red))
-		return
-	}
-
-	var targetEp *streaming.Episode
-	for i := range episodes {
-		if episodes[i].Number == epNum {
-			targetEp = &episodes[i]
-			break
-		}
-	}
-
-	if targetEp == nil || targetEp.StreamURL == "" {
-		errMsg := "Stream non trovato per questo episodio."
-		if targetEp != nil && targetEp.Err != nil {
-			errMsg = targetEp.Err.Error()
-		}
-		p.ui.Println(WrapIn("Errore: "+errMsg, Red))
-		return
-	}
-
-	p.askQualityAndPlay(targetEp.StreamURL, targetEp.Number)
-}
-
-// selectAndPlayEpisodeList mostra la lista di tutti gli episodi e permette di selezionarne uno.
-func (p *PlayerCLI) selectAndPlayEpisodeList(episodes []streaming.Episode) {
+	lastSel := 0
 	for {
-		var sb strings.Builder
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn("--- Episodi Disponibili ---", Green))
-		sb.WriteString("\n")
-		for i, ep := range episodes {
-			status := ""
-			if ep.StreamURL == "" {
-				status = " (Non disponibile)"
-			}
-			sb.WriteString(fmt.Sprintf("[%s%d%s] Episodio %s%s\n", Yellow, i+1, Reset, ep.Number, status))
+		idx, action := showMenu(
+			fmt.Sprintf("Episodi — %s", anime.Name),
+			items, lastSel,
+			"↑↓ naviga  Enter riproduci  B torna  Q esci",
+		)
+		switch action {
+		case "quit":
+			return true
+		case "back":
+			return false
 		}
-		sb.WriteString(WrapIn("[b] Torna indietro | [q] Esci", Cyan))
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn("Seleziona il numero della lista da riprodurre: ", Yellow))
-
-		p.ui.Print(sb.String())
-		input := p.ui.ReadInput("")
-
-		if isQuitInput(input) {
-			p.ui.Println("Uscita dal player.")
-			os.Exit(0)
-		}
-		if isBackInput(input) {
-			return
-		}
-
-		idx, ok := parseSelection(input, len(episodes))
-		if !ok {
-			p.ui.Println(WrapIn("Selezione non valida.", Red))
-			continue
-		}
-
+		lastSel = idx
 		ep := episodes[idx]
 		if ep.StreamURL == "" {
-			errMsg := "Stream non disponibile."
+			msg := "Stream non disponibile."
 			if ep.Err != nil {
-				errMsg = ep.Err.Error()
+				msg = ep.Err.Error()
 			}
-			p.ui.Println(WrapIn("Errore: "+errMsg, Red))
+			p.showError("Non disponibile", msg)
 			continue
 		}
-
-		p.askQualityAndPlay(ep.StreamURL, ep.Number)
+		if quit := p.runQualityMenu(ep.StreamURL, ep.Number); quit {
+			return true
+		}
 	}
 }
 
-func (p *PlayerCLI) askQualityAndPlay(streamURL string, epNum string) {
+// runQualityMenu — selezione qualità upscale
+func (p *PlayerTUI) runQualityMenu(streamURL, epNum string) bool {
+	items := make([]menuItem, len(QualityPresets))
+	for i, preset := range QualityPresets {
+		items[i] = menuItem{
+			label:    fmt.Sprintf("%-30s", preset.Name),
+			subLabel: preset.Description,
+		}
+	}
+
+	lastSel := 0
 	for {
-		var sb strings.Builder
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn(fmt.Sprintf("Configura qualità per Episodio %s:", epNum), Yellow))
-		sb.WriteString("\n")
-		for _, preset := range QualityPresets {
-			sb.WriteString(fmt.Sprintf("[%s%d%s] %-28s - %s\n", Yellow, preset.ID, Reset, preset.Name, preset.Description))
+		idx, action := showMenu(
+			fmt.Sprintf("Qualità — Episodio %s", epNum),
+			items, lastSel,
+			"↑↓ naviga  Enter avvia mpv  B torna  Q esci",
+		)
+		switch action {
+		case "quit":
+			return true
+		case "back":
+			return false
 		}
-		sb.WriteString(WrapIn("[b] Annulla | [q] Esci", Cyan))
-		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("%sInserisci la qualità desiderata (1-%d): %s", Yellow, len(QualityPresets), Reset))
+		lastSel = idx
+		preset := &QualityPresets[idx]
 
-		p.ui.Print(sb.String())
-		input := p.ui.ReadInput("")
+		termbox.Close()
 
-		if isQuitInput(input) {
-			p.ui.Println("Uscita dal player.")
-			os.Exit(0)
+		fmt.Printf("\033[2J\033[H")
+		fmt.Printf("%s▶  Avvio mpv — Episodio %s — Preset: %s%s"+
+			"", Green, epNum, preset.Name, Reset)
+		play(streamURL, preset.ID)
+		fmt.Printf("%s■  Riproduzione terminata. Premi Invio per continuare...%s", Yellow, Reset)
+		fmt.Scanln()
+
+		// Reinizializza termbox dopo mpv
+		if err := termbox.Init(); err != nil {
+			fmt.Fprintln(os.Stderr, "Impossibile reinizializzare termbox:", err)
+			os.Exit(1)
 		}
-		if isBackInput(input) {
-			return
-		}
-
-		qualityNum, err := strconv.Atoi(input)
-		preset := GetPresetByID(qualityNum)
-		if err != nil || preset == nil {
-			p.ui.Println(WrapIn(fmt.Sprintf("Qualità non valida. Seleziona un valore tra 1 e %d.", len(QualityPresets)), Red))
-			continue
-		}
-
-		p.ui.Println(WrapIn(fmt.Sprintf("Avvio mpv per l'episodio %s con preset '%s'...", epNum, preset.Name), Green))
-		play(streamURL, qualityNum)
-		p.ui.Println(WrapIn(fmt.Sprintf("Riproduzione episodio %s terminata. Puoi scegliere un altro episodio o qualità.", epNum), Green))
-		return
+		termbox.SetInputMode(termbox.InputEsc)
+		return false
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Settings / Preferences
-// -----------------------------------------------------------------------------
-
-func (p *PlayerCLI) handleSettings() {
+// runSettings — impostazioni provider
+func (p *PlayerTUI) runSettings() bool {
+	items := []menuItem{
+		{label: "Provider di streaming", subLabel: p.client.Name()},
+	}
 	for {
-		var sb strings.Builder
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn("=== Impostazioni ===", Green))
-		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("Provider attuale: %s%s%s\n", Cyan, p.client.Name(), Reset))
-		sb.WriteString(fmt.Sprintf("[%s1%s] Provider (server di streaming)\n", Yellow, Reset))
-		sb.WriteString(WrapIn("[b] Torna indietro | [q] Esci", Cyan))
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn("Scegli quale impostazione cambiare: ", Yellow))
-
-		p.ui.Print(sb.String())
-		choice := p.ui.ReadInput("")
-
-		if isQuitInput(choice) {
-			p.ui.Println("Uscita dal player.")
-			os.Exit(0)
+		idx, action := showMenu(
+			"=== Impostazioni ===",
+			items, 0,
+			"↑↓ naviga  Enter seleziona  B torna  Q esci",
+		)
+		switch action {
+		case "quit":
+			return true
+		case "back":
+			return false
 		}
-		if isBackInput(choice) {
-			return
+		_ = idx
+		// unica opzione: cambio provider
+		if quit := p.runSelectProvider(); quit {
+			return true
 		}
-
-		switch choice {
-		case "1":
-			p.selectProviderSettings()
-		default:
-			p.ui.Println(WrapIn("Opzione non valida.", Red))
-		}
+		// aggiorna subLabel dopo cambio
+		items[0].subLabel = p.client.Name()
 	}
 }
 
-func (p *PlayerCLI) selectProviderSettings() {
-	for {
-		var sb strings.Builder
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn("--- Seleziona Provider di Streaming ---", Green))
-		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("[%s1%s] AnimeWorld (più stabile)\n", Yellow, Reset))
-		sb.WriteString(fmt.Sprintf("[%s2%s] AnimeUnity (qualità più alta / FHD)\n", Yellow, Reset))
-		sb.WriteString(WrapIn("[b] Torna indietro | [q] Esci", Cyan))
-		sb.WriteString("\n")
-		sb.WriteString(WrapIn("Scegli il provider desiderato (1/2): ", Yellow))
-
-		p.ui.Print(sb.String())
-		input := p.ui.ReadInput("")
-
-		if isQuitInput(input) {
-			p.ui.Println("Uscita dal player.")
-			os.Exit(0)
-		}
-		if isBackInput(input) {
-			return
-		}
-
-		switch input {
-		case "1":
-			p.updateProvider("animeworld", streaming.NewAnimeWorldClient())
-			return
-		case "2":
-			p.updateProvider("animeunity", streaming.NewAnimeUnityClient())
-			return
-		default:
-			p.ui.Println(WrapIn("Scelta non valida. Inserisci 1 o 2.", Red))
-		}
+// runSelectProvider — scelta provider
+func (p *PlayerTUI) runSelectProvider() bool {
+	providerItems := []menuItem{
+		{label: "AnimeWorld", subLabel: "più stabile"},
+		{label: "AnimeUnity", subLabel: "qualità più alta / FHD"},
 	}
-}
+	idx, action := showMenu(
+		"--- Seleziona Provider ---",
+		providerItems, 0,
+		"↑↓ naviga  Enter seleziona  B torna  Q esci",
+	)
+	switch action {
+	case "quit":
+		return true
+	case "back":
+		return false
+	}
 
-func (p *PlayerCLI) updateProvider(pref string, client streaming.Provider) {
+	var pref string
+	var client streaming.Provider
+	switch idx {
+	case 0:
+		pref = "animeworld"
+		client = streaming.NewAnimeWorldClient()
+	case 1:
+		pref = "animeunity"
+		client = streaming.NewAnimeUnityClient()
+	}
+
 	p.client = client
 
 	cfg, err := LoadConfig()
@@ -436,10 +736,40 @@ func (p *PlayerCLI) updateProvider(pref string, client streaming.Provider) {
 		cfg = DefaultConfig()
 	}
 	cfg.Preference = pref
-
 	if err := SaveConfig(cfg); err != nil {
-		p.ui.Println(WrapIn("Attenzione: impossibile salvare la preferenza su file: "+err.Error(), Red))
-	} else {
-		p.ui.Println(WrapIn(fmt.Sprintf("Provider aggiornato a '%s' e salvato nelle impostazioni!", client.Name()), Green))
+		p.showError("Attenzione", "Impossibile salvare la preferenza: "+err.Error())
 	}
+	return false
+}
+
+// showError — mostra un messaggio d'errore e attende un tasto
+func (p *PlayerTUI) showError(title, msg string) {
+	tbClear()
+	row := tbDrawHeader(0)
+	row++
+	tbPrintCentered(row, colRed, colDefault, "✗  "+title)
+	row += 2
+
+	w := screenWidth()
+	words := strings.Fields(msg)
+	line := ""
+	for _, wd := range words {
+		if len(line)+len(wd)+1 > w-4 {
+			tbPrintCentered(row, colWhite, colDefault, line)
+			row++
+			line = wd
+		} else {
+			if line != "" {
+				line += " "
+			}
+			line += wd
+		}
+	}
+	if line != "" {
+		tbPrintCentered(row, colWhite, colDefault, line)
+	}
+
+	tbDrawFooter("Premi un tasto per continuare...")
+	tbFlush()
+	termbox.PollEvent()
 }
