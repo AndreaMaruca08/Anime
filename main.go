@@ -88,10 +88,26 @@ func play(url string, qualityNum int) {
 
 	quality := "--glsl-shaders=" + strings.Join(shaders, string(os.PathListSeparator))
 
-	cmd := exec.Command(
-		"mpv",
+	mpvArgs := []string{
 		url,
 		quality,
+	}
+
+	// Header HTTP richiesti da VixCloud / vix-content / AnimeUnity
+	if strings.Contains(url, "vixcloud") || strings.Contains(url, "vix-content") || strings.Contains(url, "animeunity") {
+		mpvArgs = append(mpvArgs,
+			"--referrer=https://vixcloud.cc/",
+			"--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0.1 Safari/605.1.15",
+		)
+	} else {
+		mpvArgs = append(mpvArgs,
+			"--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0.1 Safari/605.1.15",
+		)
+	}
+
+	cmd := exec.Command(
+		"mpv",
+		mpvArgs...,
 	)
 
 	cmd.Stdout = os.Stdout

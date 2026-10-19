@@ -21,16 +21,21 @@ import (
 
 // Regex patterns matching the Python crawler configuration.
 var (
-	downloadLinkPattern    = regexp.MustCompile(`window\.downloadUrl\s*=\s*'(https?://[^']+)'`)
-	animeNamePattern       = regexp.MustCompile(`/anime/\d+-(.+)$`)
-	animeURLPattern        = regexp.MustCompile(`(?:/anime/|/info_api/)(\d+-[^/?#]+)`)
-	streamURLPattern       = regexp.MustCompile(`https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*`)
-	playlistURLPattern     = regexp.MustCompile(`https?://[^\s"'<>]*/playlist/\d+[^\s"'<>]*`)
-	archivioRecordsPattern = regexp.MustCompile(`<archivio[^>]*records="([^"]+)"`)
+	downloadLinkPattern       = regexp.MustCompile(`window\.downloadUrl\s*=\s*'(https?://[^']+)'`)
+	animeNamePattern          = regexp.MustCompile(`/anime/\d+-(.+)$`)
+	animeURLPattern           = regexp.MustCompile(`(?:/anime/|/info_api/)(\d+-[^/?#]+)`)
+	streamURLPattern          = regexp.MustCompile(`https?://[^\s"'<>]+\.(?:mp4|m3u8)[^\s"'<>]*`)
+	playlistURLPattern        = regexp.MustCompile(`https?://[^\s"'<>]*/playlist/\d+[^\s"'<>]*`)
+	archivioRecordsPattern    = regexp.MustCompile(`<archivio[^>]*records="([^"]+)"`)
+	masterPlaylistURLRegex    = regexp.MustCompile(`window\.masterPlaylist\s*=\s*\{[\s\S]*?url\s*:\s*['"]([^'"]+)['"]`)
+	masterPlaylistParamsRegex = regexp.MustCompile(`window\.masterPlaylist\s*=\s*\{[\s\S]*?params\s*:\s*\{([^}]*)\}`)
+	paramPairRegex            = regexp.MustCompile(`['"]?([a-zA-Z0-9_]+)['"]?\s*:\s*['"]([^'"]*)['"]`)
+	canPlayFHDRegex           = regexp.MustCompile(`window\.canPlayFHD\s*=\s*(true|1)`)
+	streamsURLRegex           = regexp.MustCompile(`window\.streams\s*=\s*\[[\s\S]*?['"]url['"]\s*:\s*['"]([^'"]+)['"]`)
 )
 
 const (
-	defaultAnimeUnityHost = "www.animeunity.so"
+	defaultAnimeUnityHost = "www.animeunity.to"
 	defaultBatchSize      = 120 // Range span allowed by the API is < 120 (e.g. 119)
 	defaultRangeSpan      = 119
 )
@@ -675,7 +680,7 @@ func (c *AnimeUnityClient) resolveStreams(ctx context.Context, host string, epis
 
 // resolveSingleStream fetches the embed URL and extracts the underlying video / download URL.
 func (c *AnimeUnityClient) resolveSingleStream(ctx context.Context, host string, embedURL string) (string, error) {
-	// Step 1: GET embed-url endpoint (returns e.g. https://vixcloud.co/embed/...)
+	// Step 1: GET embed-url endpoint (returns e.g. https://vixcloud.cc/embed/...)
 	referer := fmt.Sprintf("https://%s/", host)
 	respText, err := c.fetchWithRetries(ctx, embedURL, referer, 3)
 	if err != nil {
@@ -697,14 +702,19 @@ func (c *AnimeUnityClient) resolveSingleStream(ctx context.Context, host string,
 				return dlLink, nil
 			}
 
+			// Check for window.masterPlaylist / window.streams with token, expires & h
+			if streamURL := extractStreamFromVixHTML(vixHTML, vixURL); streamURL != "" {
+				return streamURL, nil
+			}
+
 			// Fallback: search for m3u8 playlist or mp4 in the page scripts
 			if m := streamURLPattern.FindString(vixHTML); m != "" {
-				return m, nil
+				return strings.ReplaceAll(m, `\/`, `/`), nil
 			}
 
 			// Fallback: check for playlist url
 			if p := playlistURLPattern.FindString(vixHTML); p != "" {
-				return p, nil
+				return strings.ReplaceAll(p, `\/`, `/`), nil
 			}
 		}
 
@@ -713,4 +723,78 @@ func (c *AnimeUnityClient) resolveSingleStream(ctx context.Context, host string,
 	}
 
 	return "", &UnityError{Message: "Impossibile trovare uno stream valido per " + embedURL}
+}
+
+// extractStreamFromVixHTML parses window.masterPlaylist (or window.streams) and builds the signed playlist URL.
+func extractStreamFromVixHTML(vixHTML, vixEmbedURL string) string {
+	var embedU *url.URL
+	if vixEmbedURL != "" {
+		embedU, _ = url.Parse(vixEmbedURL)
+	}
+
+	if uMatch := masterPlaylistURLRegex.FindStringSubmatch(vixHTML); len(uMatch) > 1 {
+		rawURL := strings.ReplaceAll(uMatch[1], `\/`, `/`)
+		if parsedURL, err := url.Parse(rawURL); err == nil {
+			q := parsedURL.Query()
+
+			if pMatch := masterPlaylistParamsRegex.FindStringSubmatch(vixHTML); len(pMatch) > 1 {
+				pairs := paramPairRegex.FindAllStringSubmatch(pMatch[1], -1)
+				for _, pair := range pairs {
+					if len(pair) >= 3 && pair[2] != "" {
+						q.Set(pair[1], pair[2])
+					}
+				}
+			}
+
+			// Fallback: token/expires from embed URL if missing from masterPlaylist.params
+			if embedU != nil {
+				if q.Get("token") == "" && embedU.Query().Get("token") != "" {
+					q.Set("token", embedU.Query().Get("token"))
+				}
+				if q.Get("expires") == "" && embedU.Query().Get("expires") != "" {
+					q.Set("expires", embedU.Query().Get("expires"))
+				}
+			}
+
+			// Check if Full HD (canPlayFHD) is available / requested
+			isFHD := false
+			if embedU != nil {
+				canPlay := embedU.Query().Get("canPlayFHD")
+				if canPlay != "" && canPlay != "0" && canPlay != "false" {
+					isFHD = true
+				}
+			}
+			if !isFHD && canPlayFHDRegex.MatchString(vixHTML) {
+				isFHD = true
+			}
+
+			if isFHD {
+				q.Set("h", "1")
+			}
+
+			parsedURL.RawQuery = q.Encode()
+			return parsedURL.String()
+		}
+	}
+
+	// 2. Fallback to window.streams = [{"url": "https:\/\/vixcloud.cc\/playlist\/..."}]
+	if sMatch := streamsURLRegex.FindStringSubmatch(vixHTML); len(sMatch) > 1 {
+		raw := strings.ReplaceAll(sMatch[1], `\/`, `/`)
+		if parsed, err := url.Parse(raw); err == nil {
+			q := parsed.Query()
+			if embedU != nil {
+				if q.Get("token") == "" && embedU.Query().Get("token") != "" {
+					q.Set("token", embedU.Query().Get("token"))
+				}
+				if q.Get("expires") == "" && embedU.Query().Get("expires") != "" {
+					q.Set("expires", embedU.Query().Get("expires"))
+				}
+			}
+			parsed.RawQuery = q.Encode()
+			return parsed.String()
+		}
+		return raw
+	}
+
+	return ""
 }
