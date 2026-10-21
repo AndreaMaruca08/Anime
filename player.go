@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"UpscalerCLI/streaming"
@@ -347,7 +348,7 @@ func showSearchScreen(providerName string, tui *PlayerTUI) (string, string) {
 		tbPrint(2, row, colRed, colDefault, prompt)
 		tbFill(2+len([]rune(prompt)), row, w-4-len([]rune(prompt)), '▁', colMagenta, colDefault)
 
-		tbDrawFooter("Enter cerca  I impostazioni  Q esci  P preferiti")
+		tbDrawFooter("Enter cerca  I impostazioni  P preferiti  A aggiorna  Q esci")
 		tbFlush()
 
 		query := readLine(2+len([]rune(prompt)), row, colWhite, colDefault)
@@ -367,6 +368,8 @@ func showSearchScreen(providerName string, tui *PlayerTUI) (string, string) {
 					return "", "quit"
 				case 'p', 'P':
 					return "", "favorites"
+				case 'a', 'A':
+					return "", "update"
 				}
 				switch ev.Key {
 				case termbox.KeyEsc:
@@ -385,6 +388,9 @@ func showSearchScreen(providerName string, tui *PlayerTUI) (string, string) {
 		}
 		if lower == "p" {
 			return "", "favorites"
+		}
+		if lower == "a" {
+			return "", "update"
 		}
 		if lower == "/resume" {
 			ctx := context.Background()
@@ -455,6 +461,11 @@ func (p *PlayerTUI) Run() {
 			return
 		case "favorites":
 			if quit := p.runFavourites(); quit {
+				return
+			}
+			continue
+		case "update":
+			if quit := p.runUpdate(); quit {
 				return
 			}
 			continue
@@ -538,6 +549,49 @@ func (p *PlayerTUI) runFavourites() bool {
 			}
 		}
 	}
+}
+
+// runUpdate — controlla e applica aggiornamenti da GitHub
+func (p *PlayerTUI) runUpdate() bool {
+	updater := NewUpdater(DefaultRepo, CurrentVersion, "anime")
+	showLoading("Controllo aggiornamenti da GitHub...")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	release, hasUpdate, err := updater.CheckUpdate(ctx)
+	if err != nil {
+		p.showError("Errore aggiornamento", fmt.Sprintf("Impossibile verificare gli aggiornamenti: %v", err))
+		return false
+	}
+
+	if !hasUpdate {
+		p.showError("Nessun aggiornamento", fmt.Sprintf("Stai già utilizzando l'ultima versione disponibile (%s).", CurrentVersion))
+		return false
+	}
+
+	title := fmt.Sprintf("Aggiornamento trovato: %s (attuale: %s)", release.TagName, CurrentVersion)
+	items := []menuItem{
+		{label: "Sì, aggiorna adesso", subLabel: "scarica e installa la nuova versione"},
+		{label: "Annulla", subLabel: "torna alla ricerca"},
+	}
+
+	idx, action := showMenu(title, items, 0, "↑↓ naviga  Enter seleziona  B torna")
+	if action != "select" || idx != 0 {
+		return false
+	}
+
+	showLoading(fmt.Sprintf("Download e installazione di %s...", release.TagName))
+	updateCtx, updateCancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer updateCancel()
+
+	if err := updater.UpdateTo(updateCtx, release); err != nil {
+		p.showError("Errore installazione", err.Error())
+		return false
+	}
+
+	showMessage("Aggiornamento completato!", fmt.Sprintf("L'applicazione è stata aggiornata a %s con successo!\nRiavvia il programma per usare la nuova versione.\n\nPremi un tasto per uscire...", release.TagName), colGreen)
+	termbox.PollEvent()
+	return true
 }
 
 // runSelectAnime — pagina lista risultati di ricerca

@@ -42,6 +42,7 @@ anime -player
 **Funzionalità nel player:**
 - **Cerca anime**: scrivi il titolo da cercare e premi Invio.
 - **Preferiti (`P`)**: visualizza la tua lista dei preferiti. Puoi riprodurli o rimuoverli (`D` o `R`).
+- **Aggiorna app (`A`)**: controlla se ci sono nuove release su GitHub e aggiorna automaticamente l'eseguibile.
 - **Riprendi ultimo episodio (`/resume`)**: riprende subito l'ultimo anime visto.
 - **Impostazioni (`I`)**: cambia provider streaming preferito.
 - **Scelta qualità**: seleziona il preset di upscaling Anime4K desiderato prima della riproduzione.
