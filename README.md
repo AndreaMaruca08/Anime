@@ -4,7 +4,7 @@ Player streaming da terminale (TUI) e upscaler video in tempo reale con **Anime4
 
 ---
 
-## ⚠️ Requisiti
+## Requisiti
 
 Il programma richiede **[mpv](https://mpv.io/)** installato sul sistema e accessibile nel `PATH`.
 
@@ -30,7 +30,7 @@ Il programma richiede **[mpv](https://mpv.io/)** installato sul sistema e access
 
 ---
 
-## 🚀 Utilizzo
+## Utilizzo
 
 ### 1. Modalità Player Interattivo (TUI)
 Avvia l'interfaccia da terminale per cercare e guardare anime in streaming (con supporto ai provider AnimeWorld e AnimeUnity):
