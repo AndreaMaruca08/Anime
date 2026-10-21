@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -298,28 +299,46 @@ func showMenu(title string, items []menuItem, startIndex int, extraHint string) 
 				return selected, "select"
 			case termbox.KeyEsc:
 				return selected, "back"
+			case termbox.KeyDelete:
+				return selected, "delete"
 			}
 			switch ev.Ch {
 			case 'b', 'B':
 				return selected, "back"
 			case 'q', 'Q':
 				return selected, "quit"
+			case 'd', 'D', 'r', 'R':
+				return selected, "delete"
 			}
 		}
 	}
 }
 
-// showSearchScreen mostra l'input di ricerca. Ritorna query, action ("search"|"settings"|"quit")
-func showSearchScreen(providerName string) (string, string) {
+// showSearchScreen mostra l'input di ricerca. Ritorna query, action ("search"|"settings"|"quit"|"favourites")
+func showSearchScreen(providerName string, tui *PlayerTUI) (string, string) {
 	for {
 		tbClear()
 		w := screenWidth()
-
 		row := tbDrawHeader(0)
 		tbPrint(2, row, colRed, colDefault, fmt.Sprintf("◈ Provider: %s", providerName))
 		row += 2
 
-		tbPrint(2, row, colMagenta, colDefault, "  Cerca un anime:")
+		configs := tui.config
+
+		shouldDisplayLastEpisodeWatched := configs.LastEpisodeWatched.Anime.Name != "Not watched"
+
+		if shouldDisplayLastEpisodeWatched {
+			tbPrint(2, row, colRed, colDefault, fmt.Sprintf("◈ Last episode watched: %s - ep %s", configs.LastEpisodeWatched.Anime.Name, configs.LastEpisodeWatched.EpisodeNumber))
+			row += 2
+		}
+
+		inputStr := "  Cerca un anime"
+		if shouldDisplayLastEpisodeWatched {
+			inputStr += " (/resume to go back to the last anime watched) "
+		}
+		inputStr += ":"
+
+		tbPrint(2, row, colMagenta, colDefault, inputStr)
 		row++
 		tbDrawSeparator(row)
 		row++
@@ -328,7 +347,7 @@ func showSearchScreen(providerName string) (string, string) {
 		tbPrint(2, row, colRed, colDefault, prompt)
 		tbFill(2+len([]rune(prompt)), row, w-4-len([]rune(prompt)), '▁', colMagenta, colDefault)
 
-		tbDrawFooter("Enter cerca  I impostazioni  Q esci")
+		tbDrawFooter("Enter cerca  I impostazioni  Q esci  P preferiti")
 		tbFlush()
 
 		query := readLine(2+len([]rune(prompt)), row, colWhite, colDefault)
@@ -346,6 +365,8 @@ func showSearchScreen(providerName string) (string, string) {
 					return "", "settings"
 				case 'q', 'Q':
 					return "", "quit"
+				case 'p', 'P':
+					return "", "favorites"
 				}
 				switch ev.Key {
 				case termbox.KeyEsc:
@@ -361,6 +382,17 @@ func showSearchScreen(providerName string) (string, string) {
 		}
 		if lower == "i" {
 			return "", "settings"
+		}
+		if lower == "p" {
+			return "", "favorites"
+		}
+		if lower == "/resume" {
+			ctx := context.Background()
+			quit := tui.runAllEpisodes(ctx, &configs.LastEpisodeWatched.Anime)
+			if quit {
+				return "", "quit"
+			}
+			continue
 		}
 		return query, "search"
 	}
@@ -400,10 +432,11 @@ func showLoading(msg string) {
 
 type PlayerTUI struct {
 	client streaming.Provider
+	config *Config
 }
 
-func NewPlayerTUI(client streaming.Provider) *PlayerTUI {
-	return &PlayerTUI{client: client}
+func NewPlayerTUI(client streaming.Provider, configs *Config) *PlayerTUI {
+	return &PlayerTUI{client: client, config: configs}
 }
 
 func (p *PlayerTUI) Run() {
@@ -416,10 +449,15 @@ func (p *PlayerTUI) Run() {
 	termbox.SetInputMode(termbox.InputEsc)
 
 	for {
-		query, action := showSearchScreen(p.client.Name())
+		query, action := showSearchScreen(p.client.Name(), p)
 		switch action {
 		case "quit":
 			return
+		case "favorites":
+			if quit := p.runFavourites(); quit {
+				return
+			}
+			continue
 		case "settings":
 			if quit := p.runSettings(); quit {
 				return
@@ -442,6 +480,62 @@ func (p *PlayerTUI) Run() {
 
 		if quit := p.runSelectAnime(ctx, query, results); quit {
 			return
+		}
+	}
+}
+
+func (p *PlayerTUI) runFavourites() bool {
+	if len(p.config.SavedAnime) == 0 {
+		p.showError("Preferiti", "Nessun anime salvato nei preferiti.")
+		return false
+	}
+
+	lastSel := 0
+	for {
+		if len(p.config.SavedAnime) == 0 {
+			p.showError("Preferiti", "Nessun altro preferito salvato.")
+			return false
+		}
+
+		if lastSel >= len(p.config.SavedAnime) {
+			lastSel = len(p.config.SavedAnime) - 1
+		}
+
+		items := make([]menuItem, len(p.config.SavedAnime))
+		for i, anime := range p.config.SavedAnime {
+			items[i] = menuItem{label: anime.Name}
+		}
+
+		idx, action := showMenu(
+			"◈ Anime Preferiti",
+			items, lastSel,
+			"↑↓ naviga  Enter riproduci  D rimuovi  B torna  Q esci",
+		)
+		switch action {
+		case "quit":
+			return true
+		case "back":
+			return false
+		case "delete":
+			removed := p.config.SavedAnime[idx]
+			p.config.SavedAnime = slices.Delete(p.config.SavedAnime, idx, idx+1)
+			if err := SaveConfig(p.config); err != nil {
+				p.showError("Errore salvataggio", err.Error())
+			} else {
+				// Mostra conferma se non ci sono più elementi, altrimenti aggiorna la lista
+				if len(p.config.SavedAnime) == 0 {
+					p.showError("Preferiti", fmt.Sprintf("\"%s\" rimosso dai preferiti.", removed.Name))
+					return false
+				}
+			}
+			lastSel = idx
+		case "select":
+			lastSel = idx
+			selected := &p.config.SavedAnime[idx]
+			ctx := context.Background()
+			if quit := p.runAllEpisodes(ctx, selected); quit {
+				return true
+			}
 		}
 	}
 }
@@ -484,13 +578,23 @@ func (p *PlayerTUI) runSelectAnime(ctx context.Context, query string, results []
 
 // runAnimeMenu — menù episodi per un anime
 func (p *PlayerTUI) runAnimeMenu(ctx context.Context, anime *streaming.Anime) bool {
-	items := []menuItem{
-		{label: "Inserisci numero episodio direttamente (veloce)"},
-		{label: "Visualizza tutti gli episodi disponibili e scegline uno"},
-	}
-
 	lastSel := 0
 	for {
+		isFav := slices.ContainsFunc(p.config.SavedAnime, func(animeCmp streaming.Anime) bool {
+			return animeCmp.Name == anime.Name
+		})
+
+		favLabel := "Aggiungi tra i preferiti questo anime"
+		if isFav {
+			favLabel = "Rimuovi dai preferiti questo anime"
+		}
+
+		items := []menuItem{
+			{label: "Inserisci numero episodio direttamente (veloce)"},
+			{label: "Visualizza tutti gli episodi disponibili e scegline uno"},
+			{label: favLabel},
+		}
+
 		idx, action := showMenu(
 			fmt.Sprintf("=== %s ===", anime.Name),
 			items, lastSel,
@@ -510,6 +614,19 @@ func (p *PlayerTUI) runAnimeMenu(ctx context.Context, anime *streaming.Anime) bo
 			}
 		case 1:
 			if quit := p.runAllEpisodes(ctx, anime); quit {
+				return true
+			}
+		case 2:
+			if isFav {
+				p.config.SavedAnime = slices.DeleteFunc(p.config.SavedAnime, func(a streaming.Anime) bool {
+					return a.Name == anime.Name
+				})
+			} else {
+				p.config.SavedAnime = append(p.config.SavedAnime, *anime)
+			}
+			err := SaveConfig(p.config)
+			if err != nil {
+				p.showError("Errore", "Errore nel salvataggio dei preferiti: "+err.Error())
 				return true
 			}
 		}
@@ -567,7 +684,7 @@ func (p *PlayerTUI) runEpisodeInput(ctx context.Context, anime *streaming.Anime)
 			continue
 		}
 
-		if quit := p.runQualityMenu(target.StreamURL, target.Number); quit {
+		if quit := p.runQualityMenu(target.StreamURL, target.Number, anime); quit {
 			return true
 		}
 		return false
@@ -622,14 +739,14 @@ func (p *PlayerTUI) runAllEpisodes(ctx context.Context, anime *streaming.Anime) 
 			p.showError("Non disponibile", msg)
 			continue
 		}
-		if quit := p.runQualityMenu(ep.StreamURL, ep.Number); quit {
+		if quit := p.runQualityMenu(ep.StreamURL, ep.Number, anime); quit {
 			return true
 		}
 	}
 }
 
 // runQualityMenu — selezione qualità upscale
-func (p *PlayerTUI) runQualityMenu(streamURL, epNum string) bool {
+func (p *PlayerTUI) runQualityMenu(streamURL, epNum string, anime *streaming.Anime) bool {
 	items := make([]menuItem, len(QualityPresets))
 	for i, preset := range QualityPresets {
 		items[i] = menuItem{
@@ -655,6 +772,17 @@ func (p *PlayerTUI) runQualityMenu(streamURL, epNum string) bool {
 		preset := &QualityPresets[idx]
 
 		termbox.Close()
+
+		p.config.LastEpisodeWatched = LastEpisodeWatched{
+			Anime:         *anime,
+			EpisodeNumber: epNum,
+		}
+
+		err := SaveConfig(p.config)
+		if err != nil {
+			p.showError("Errore salvando le configurazioni per l'ultimo anime", err.Error())
+			continue
+		}
 
 		fmt.Printf("\033[2J\033[H")
 		fmt.Printf("%s▶  Avvio mpv — Episodio %s — Preset: %s%s"+

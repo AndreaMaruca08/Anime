@@ -1,6 +1,7 @@
 package main
 
 import (
+	"UpscalerCLI/streaming"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,12 +15,24 @@ const (
 )
 
 type Config struct {
-	Preference string `json:"server_preference"`
+	Preference         string `json:"server_preference"`
+	LastEpisodeWatched LastEpisodeWatched
+	SavedAnime         []streaming.Anime
+}
+
+type LastEpisodeWatched struct {
+	Anime         streaming.Anime `json:"anime_from_last_episode"`
+	EpisodeNumber string          `json:"last_episode_number"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		Preference: "default",
+		SavedAnime: []streaming.Anime{},
+		LastEpisodeWatched: LastEpisodeWatched{
+			Anime:         streaming.Anime{},
+			EpisodeNumber: "Not watched",
+		},
 	}
 }
 

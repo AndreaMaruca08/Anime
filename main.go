@@ -130,7 +130,7 @@ func handlePlayer() {
 
 	provider := getProviderByConfig(configs)
 
-	player := NewPlayerTUI(provider)
+	player := NewPlayerTUI(provider, configs)
 	player.Run()
 }
 
