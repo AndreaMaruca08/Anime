@@ -14,7 +14,11 @@ const (
 	configFileName = "settings.json"
 )
 
+// AppVersion definisce la versione corrente del binario, sovrascrivibile a build-time via -ldflags "-X main.AppVersion=..."
+var AppVersion = "v1.0.0"
+
 type Config struct {
+	AppVersion         string `json:"app_version"`
 	Preference         string `json:"server_preference"`
 	LastEpisodeWatched LastEpisodeWatched
 	SavedAnime         []streaming.Anime
@@ -27,6 +31,7 @@ type LastEpisodeWatched struct {
 
 func DefaultConfig() *Config {
 	return &Config{
+		AppVersion: AppVersion,
 		Preference: "default",
 		SavedAnime: []streaming.Anime{},
 		LastEpisodeWatched: LastEpisodeWatched{
@@ -86,12 +91,21 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("errore nella decodifica JSON di %s: %w", filePath, err)
 	}
 
+	if cfg.AppVersion == "" || (AppVersion != "" && cfg.AppVersion != AppVersion) {
+		cfg.AppVersion = AppVersion
+		_ = SaveConfig(&cfg)
+	}
+
 	return &cfg, nil
 }
 
 func SaveConfig(cfg *Config) error {
 	if cfg == nil {
 		return errors.New("config non può essere nil")
+	}
+
+	if cfg.AppVersion == "" {
+		cfg.AppVersion = AppVersion
 	}
 
 	filePath, err := GetConfigFilePath()

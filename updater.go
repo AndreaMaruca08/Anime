@@ -20,8 +20,6 @@ import (
 const (
 	// DefaultRepo è il repository predefinito di riferimento per gli aggiornamenti
 	DefaultRepo = "AndreaMaruca08/UpscalerCLI"
-	// CurrentVersion è la versione attuale dell'applicazione
-	CurrentVersion = "v1.0.0"
 )
 
 // ReleaseAsset rappresenta un file allegato a una release su GitHub

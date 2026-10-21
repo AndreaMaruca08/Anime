@@ -553,7 +553,12 @@ func (p *PlayerTUI) runFavourites() bool {
 
 // runUpdate — controlla e applica aggiornamenti da GitHub
 func (p *PlayerTUI) runUpdate() bool {
-	updater := NewUpdater(DefaultRepo, CurrentVersion, "anime")
+	currentVer := p.config.AppVersion
+	if currentVer == "" {
+		currentVer = AppVersion
+	}
+
+	updater := NewUpdater(DefaultRepo, currentVer, "anime")
 	showLoading("Controllo aggiornamenti da GitHub...")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -565,11 +570,11 @@ func (p *PlayerTUI) runUpdate() bool {
 	}
 
 	if !hasUpdate {
-		p.showError("Nessun aggiornamento", fmt.Sprintf("Stai già utilizzando l'ultima versione disponibile (%s).", CurrentVersion))
+		p.showError("Nessun aggiornamento", fmt.Sprintf("Stai già utilizzando l'ultima versione disponibile (%s).", currentVer))
 		return false
 	}
 
-	title := fmt.Sprintf("Aggiornamento trovato: %s (attuale: %s)", release.TagName, CurrentVersion)
+	title := fmt.Sprintf("Aggiornamento trovato: %s (attuale: %s)", release.TagName, currentVer)
 	items := []menuItem{
 		{label: "Sì, aggiorna adesso", subLabel: "scarica e installa la nuova versione"},
 		{label: "Annulla", subLabel: "torna alla ricerca"},
@@ -587,6 +592,11 @@ func (p *PlayerTUI) runUpdate() bool {
 	if err := updater.UpdateTo(updateCtx, release); err != nil {
 		p.showError("Errore installazione", err.Error())
 		return false
+	}
+
+	p.config.AppVersion = release.TagName
+	if err := SaveConfig(p.config); err != nil {
+		p.showError("Attenzione", "Aggiornato ma salvataggio config fallito: "+err.Error())
 	}
 
 	showMessage("Aggiornamento completato!", fmt.Sprintf("L'applicazione è stata aggiornata a %s con successo!\nRiavvia il programma per usare la nuova versione.\n\nPremi un tasto per uscire...", release.TagName), colGreen)

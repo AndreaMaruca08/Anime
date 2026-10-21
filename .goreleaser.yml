@@ -24,7 +24,7 @@ builds:
       - -trimpath
 
     ldflags:
-      - -s -w
+      - -s -w -X main.AppVersion=v{{ .Version }}
 
 archives:
   - formats:
