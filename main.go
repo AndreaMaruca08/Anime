@@ -136,6 +136,7 @@ func handlePlayer() {
 
 func getProviderByConfig(config *Config) streaming.Provider {
 	switch config.Preference {
+
 	case "animeunity":
 		return streaming.NewAnimeUnityClient()
 	default:
