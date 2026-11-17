@@ -27,6 +27,7 @@ type Anime struct {
 	URL         string
 	Cover       string
 	Description string
+	Language    string
 	Info        map[string]any
 }
 

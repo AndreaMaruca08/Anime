@@ -10,8 +10,7 @@ import (
 	"unicode/utf8"
 
 	"UpscalerCLI/streaming"
-
-	"github.com/nsf/termbox-go"
+	termbox "github.com/nsf/termbox-go"
 )
 
 const (
@@ -118,7 +117,6 @@ var bannerLines = []string{
 	"  ,,,      .,,              fE ,;.          j                                     t           ",
 	"                             ,                                                                "}
 
-// tbDrawHeader disegna un header con banner ASCII art centrato su palette rossa
 func tbDrawHeader(y int) int {
 	w := screenWidth()
 
@@ -544,7 +542,7 @@ func (p *PlayerTUI) runFavourites() bool {
 			lastSel = idx
 			selected := &p.config.SavedAnime[idx]
 			ctx := context.Background()
-			if quit := p.runAllEpisodes(ctx, selected); quit {
+			if quit := p.askLanguageAndRun(ctx, selected); quit {
 				return true
 			}
 		}
@@ -633,11 +631,134 @@ func (p *PlayerTUI) runSelectAnime(ctx context.Context, query string, results []
 				continue
 			}
 
-			if quit := p.runAnimeMenu(ctx, anime); quit {
+			if quit := p.askLanguageAndRun(ctx, anime); quit {
 				return true
 			}
 		}
 	}
+}
+
+func getLangDisplay(lang string) string {
+	lower := strings.ToLower(strings.TrimSpace(lang))
+	if lower == "jap" || lower == "jpn" || lower == "sub" {
+		return "JAP"
+	}
+	return "ITA"
+}
+
+func getAnimeVariants(anime *streaming.Anime) (hasITA bool, epCountITA int, hasJPN bool, epCountJPN int) {
+	if anime == nil || anime.Info == nil {
+		return false, 0, false, 0
+	}
+	vList, ok := anime.Info["variants"].([]any)
+	if !ok {
+		return false, 0, false, 0
+	}
+	for _, item := range vList {
+		if m, ok := item.(map[string]any); ok {
+			lang, _ := m["language"].(string)
+			cnt := 0
+			if c, ok := m["episodes_count"].(float64); ok {
+				cnt = int(c)
+			} else if c, ok := m["episodes_count"].(int); ok {
+				cnt = c
+			}
+			if strings.EqualFold(lang, "ita") {
+				hasITA = true
+				epCountITA = cnt
+			} else if strings.EqualFold(lang, "jpn") || strings.EqualFold(lang, "jap") {
+				hasJPN = true
+				epCountJPN = cnt
+			}
+		}
+	}
+	return hasITA, epCountITA, hasJPN, epCountJPN
+}
+
+// animeHasMultipleLanguages ritorna true se l'anime ha sia ITA che JPN disponibili.
+// Viene usato per decidere se mostrare il menù di selezione lingua.
+func animeHasMultipleLanguages(anime *streaming.Anime) bool {
+	hasITA, _, hasJPN, _ := getAnimeVariants(anime)
+	return hasITA && hasJPN
+}
+
+// chooseLanguage mostra un menù per selezionare la lingua audio (ITA o JAP).
+// Se l'anime ha entrambe le lingue disponibili mostra la selezione; se ne ha
+// solo una la imposta automaticamente e ritorna "select" senza aprire nessun menù.
+func (p *PlayerTUI) chooseLanguage(anime *streaming.Anime) string {
+	hasITA, epCountITA, hasJPN, epCountJPN := getAnimeVariants(anime)
+
+	// Se c'è solo una lingua (o nessuna informazione sulle varianti), la impostiamo
+	// automaticamente senza mostrare il menù.
+	if !animeHasMultipleLanguages(anime) {
+		if hasJPN && !hasITA {
+			anime.Language = "jap"
+		} else {
+			// default ITA (o provider senza varianti come AnimeWorld)
+			if anime.Language == "" {
+				anime.Language = "ita"
+			}
+		}
+		if anime.Info != nil {
+			anime.Info["language"] = anime.Language
+		}
+		return "select"
+	}
+
+	// Entrambe le lingue disponibili: mostra il menù di scelta.
+	subITA := "Doppiaggio in italiano"
+	if epCountITA > 0 {
+		subITA = fmt.Sprintf("Doppiaggio in italiano (%d ep)", epCountITA)
+	}
+
+	subJPN := "Audio originale giapponese con sottotitoli"
+	if epCountJPN > 0 {
+		subJPN = fmt.Sprintf("Audio originale con sottotitoli (%d ep)", epCountJPN)
+	}
+
+	items := []menuItem{
+		{label: "Italiano (ITA)", subLabel: subITA},
+		{label: "Giapponese (JAP)", subLabel: subJPN},
+	}
+
+	initialSel := 0
+	if getLangDisplay(anime.Language) == "JAP" {
+		initialSel = 1
+	}
+
+	idx, action := showMenu(
+		fmt.Sprintf("Lingua Audio — %s", anime.Name),
+		items, initialSel,
+		"↑↓ naviga  Enter seleziona  B torna  Q esci",
+	)
+
+	if action != "select" {
+		return action
+	}
+
+	switch idx {
+	case 0:
+		anime.Language = "ita"
+	case 1:
+		anime.Language = "jap"
+	}
+	if anime.Info != nil {
+		anime.Info["language"] = anime.Language
+	}
+
+	return "select"
+}
+
+// askLanguageAndRun chiede la lingua (ITA/JAP) all'apertura dell'anime e avvia il menù dell'anime
+func (p *PlayerTUI) askLanguageAndRun(ctx context.Context, anime *streaming.Anime) bool {
+	action := p.chooseLanguage(anime)
+	switch action {
+	case "quit":
+		return true
+	case "back":
+		return false
+	}
+	return p.runAnimeMenu(ctx, anime)
 }
 
 // runAnimeMenu — menù episodi per un anime
@@ -653,14 +774,34 @@ func (p *PlayerTUI) runAnimeMenu(ctx context.Context, anime *streaming.Anime) bo
 			favLabel = "Rimuovi dai preferiti questo anime"
 		}
 
-		items := []menuItem{
-			{label: "Inserisci numero episodio direttamente (veloce)"},
-			{label: "Visualizza tutti gli episodi disponibili e scegline uno"},
-			{label: favLabel},
+		langLabel := getLangDisplay(anime.Language)
+		multiLang := animeHasMultipleLanguages(anime)
+
+		var items []menuItem
+		items = append(items, menuItem{label: "Inserisci numero episodio direttamente (veloce)"})
+		items = append(items, menuItem{label: "Visualizza tutti gli episodi disponibili e scegline uno"})
+		if multiLang {
+			items = append(items, menuItem{label: fmt.Sprintf("Cambia lingua audio (Attuale: %s)", langLabel)})
+		}
+		items = append(items, menuItem{label: favLabel})
+
+		// indici logici
+		idxEpInput  := 0
+		idxEpList   := 1
+		idxLang     := -1 // non presente se !multiLang
+		idxFav      := 2
+		if multiLang {
+			idxLang = 2
+			idxFav  = 3
+		}
+
+		menuTitle := fmt.Sprintf("=== %s ===", anime.Name)
+		if multiLang {
+			menuTitle = fmt.Sprintf("=== %s [Audio: %s] ===", anime.Name, langLabel)
 		}
 
 		idx, action := showMenu(
-			fmt.Sprintf("=== %s ===", anime.Name),
+			menuTitle,
 			items, lastSel,
 			"↑↓ naviga  Enter seleziona  B torna alla lista  Q esci",
 		)
@@ -671,16 +812,21 @@ func (p *PlayerTUI) runAnimeMenu(ctx context.Context, anime *streaming.Anime) bo
 			return false
 		}
 		lastSel = idx
-		switch idx {
-		case 0:
+		switch {
+		case idx == idxEpInput:
 			if quit := p.runEpisodeInput(ctx, anime); quit {
 				return true
 			}
-		case 1:
+		case idx == idxEpList:
 			if quit := p.runAllEpisodes(ctx, anime); quit {
 				return true
 			}
-		case 2:
+		case multiLang && idx == idxLang:
+			action := p.chooseLanguage(anime)
+			if action == "quit" {
+				return true
+			}
+		case idx == idxFav:
 			if isFav {
 				p.config.SavedAnime = slices.DeleteFunc(p.config.SavedAnime, func(a streaming.Anime) bool {
 					return a.Name == anime.Name
@@ -702,7 +848,7 @@ func (p *PlayerTUI) runEpisodeInput(ctx context.Context, anime *streaming.Anime)
 	for {
 		tbClear()
 		row := tbDrawHeader(0)
-		tbPrint(2, row, colMagenta, colDefault, fmt.Sprintf("Episodio di: %s", anime.Name))
+		tbPrint(2, row, colMagenta, colDefault, fmt.Sprintf("Episodio di: %s [Audio: %s]", anime.Name, getLangDisplay(anime.Language)))
 		row += 2
 		tbPrint(2, row, colWhite, colDefault, "Numero episodio (es. 1, 2, 12...):")
 		row++
@@ -725,7 +871,7 @@ func (p *PlayerTUI) runEpisodeInput(ctx context.Context, anime *streaming.Anime)
 			return false
 		}
 
-		showLoading(fmt.Sprintf("Risoluzione link episodio %s...", epNum))
+		showLoading(fmt.Sprintf("Risoluzione link episodio %s [%s]...", epNum, getLangDisplay(anime.Language)))
 		episodes, err := p.client.GetEpisodes(ctx, anime, epNum)
 		if err != nil {
 			p.showError("Errore", err.Error())
@@ -757,7 +903,7 @@ func (p *PlayerTUI) runEpisodeInput(ctx context.Context, anime *streaming.Anime)
 
 // runAllEpisodes — scarica tutti gli episodi e mostra lista
 func (p *PlayerTUI) runAllEpisodes(ctx context.Context, anime *streaming.Anime) bool {
-	showLoading("Recupero lista completa episodi...")
+	showLoading(fmt.Sprintf("Recupero lista completa episodi [%s]...", getLangDisplay(anime.Language)))
 	episodes, err := p.client.GetEpisodes(ctx, anime)
 	if err != nil {
 		p.showError("Errore", err.Error())
@@ -770,7 +916,7 @@ func (p *PlayerTUI) runAllEpisodes(ctx context.Context, anime *streaming.Anime) 
 
 	items := make([]menuItem, len(episodes))
 	for i, ep := range episodes {
-		status := ""
+		status := getLangDisplay(anime.Language)
 		if ep.StreamURL == "" {
 			status = "non disp."
 		}
@@ -783,7 +929,7 @@ func (p *PlayerTUI) runAllEpisodes(ctx context.Context, anime *streaming.Anime) 
 	lastSel := 0
 	for {
 		idx, action := showMenu(
-			fmt.Sprintf("Episodi — %s", anime.Name),
+			fmt.Sprintf("Episodi [%s] — %s", getLangDisplay(anime.Language), anime.Name),
 			items, lastSel,
 			"↑↓ naviga  Enter riproduci  B torna  Q esci",
 		)
